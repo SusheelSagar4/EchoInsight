@@ -1,15 +1,22 @@
+"""
+backend/app/main.py
+
+Entry point for the EchoInsight FastAPI backend application.
+Configures app metadata, CORS middleware, includes API routers,
+and handles root sanity check endpoints.
+"""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import feedback
+from .routers.feedback import router as feedback_router
 
-# Create main FastAPI application instance
+# Create main FastAPI application instance with title and description
 app = FastAPI(
     title="EchoInsight API",
-    description="AI-powered customer feedback clustering and automated PRD generation API",
-    version="1.0.0"
+    description="Autonomous Customer Feedback-to-PRD Pipeline"
 )
 
-# Enable CORS (Cross-Origin Resource Sharing) so the React frontend can talk to the backend
+# Add CORS middleware allowing all origins for local development (frontend runs on different port)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,13 +26,10 @@ app.add_middleware(
 )
 
 # Include the feedback router (/feedback/cluster and /feedback/prd)
-app.include_router(feedback.router)
+app.include_router(feedback_router)
 
 
-@app.get("/", summary="API Health Check")
+# Root sanity check endpoint
+@app.get("/")
 def read_root():
-    return {
-        "status": "healthy",
-        "service": "EchoInsight API",
-        "version": "1.0.0"
-    }
+    return {"status": "EchoInsight API is running"}
