@@ -1,21 +1,33 @@
 import json
 import os
+from pathlib import Path
 import google.generativeai as genai
 from dotenv import load_dotenv
 from ..models import FeedbackCluster, FeedbackItem
 
 # ==============================================================================
-# Step 1: Load Environment Variables
+# Step 1: Explicitly Locate and Load backend/.env File
 # ==============================================================================
-# Read the .env file to load secret keys like GEMINI_API_KEY into system environment
-load_dotenv()
+# Find the exact path to backend/.env relative to this file's location
+# clustering_service.py -> app/services/ -> app/ -> backend/ -> .env
+ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH, override=True)
 
-# Retrieve the API key from environment variables
-api_key = os.environ.get("GEMINI_API_KEY")
 
-# Configure the Google Generative AI SDK with the retrieved API key if available
-if api_key:
+# Helper function to get and configure the Gemini API key
+def configure_gemini():
+    # Reload environment to ensure latest key from backend/.env is active
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+
+    if not api_key:
+        raise ValueError(
+            f"GEMINI_API_KEY is missing or empty in {ENV_PATH}. Please add a valid Gemini API key to backend/.env."
+        )
+
+    # Configure google-generativeai SDK explicitly before any model call
     genai.configure(api_key=api_key)
+    return api_key
 
 
 # ==============================================================================
@@ -27,11 +39,8 @@ def cluster_feedback(raw_feedback: str) -> list[FeedbackCluster]:
     sentiment tagging, thematic grouping, and RICE prioritization scoring, and returns
     a list of structured FeedbackCluster objects.
     """
-    # Check if API key is configured before calling Gemini
-    if not api_key:
-        raise ValueError(
-            "GEMINI_API_KEY is missing. Please set it in your backend/.env file."
-        )
+    # Configure Gemini SDK with the loaded API key
+    configure_gemini()
 
     # Validate input is not empty
     if not raw_feedback or not raw_feedback.strip():
@@ -40,8 +49,6 @@ def cluster_feedback(raw_feedback: str) -> list[FeedbackCluster]:
     # ==========================================================================
     # Step 3: Construct the AI Prompt
     # ==========================================================================
-    # We craft a detailed prompt telling Gemini exactly how to categorize,
-    # group, score, and format the output as strict JSON.
     prompt = f"""
     You are an expert Product Manager and AI Data Analyst. Analyze the following raw customer feedback:
 
@@ -93,8 +100,8 @@ def cluster_feedback(raw_feedback: str) -> list[FeedbackCluster]:
     # Step 4: Call Gemini API & Parse Output
     # ==========================================================================
     try:
-        # Initialize Gemini 2.0 Flash model (fast, accurate, and free-tier friendly)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        # Initialize Gemini 3.6 Flash model (fast, accurate, and free-tier friendly)
+        model = genai.GenerativeModel("gemini-3.6-flash")
 
         # Request JSON output from Gemini model
         response = model.generate_content(

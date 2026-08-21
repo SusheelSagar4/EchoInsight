@@ -1,21 +1,32 @@
 import json
 import os
+from pathlib import Path
 import google.generativeai as genai
 from dotenv import load_dotenv
 from ..models import PRD, FeedbackCluster
 
 # ==============================================================================
-# Step 1: Load Environment Variables
+# Step 1: Explicitly Locate and Load backend/.env File
 # ==============================================================================
-# Read the .env file to load secret keys like GEMINI_API_KEY into system environment
-load_dotenv()
+# Find the exact path to backend/.env relative to this file's location
+# prd_service.py -> app/services/ -> app/ -> backend/ -> .env
+ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH, override=True)
 
-# Retrieve the API key from environment variables
-api_key = os.environ.get("GEMINI_API_KEY")
 
-# Configure the Google Generative AI SDK with the retrieved API key if available
-if api_key:
+def configure_gemini():
+    # Reload environment to ensure latest key from backend/.env is active
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+
+    if not api_key:
+        raise ValueError(
+            f"GEMINI_API_KEY is missing or empty in {ENV_PATH}. Please add a valid Gemini API key to backend/.env."
+        )
+
+    # Configure google-generativeai SDK explicitly before any model call
     genai.configure(api_key=api_key)
+    return api_key
 
 
 # ==============================================================================
@@ -26,16 +37,12 @@ def generate_prd(cluster: FeedbackCluster) -> PRD:
     Takes a FeedbackCluster object, passes its feedback items and RICE metrics to Gemini AI,
     and returns an automatically drafted Product Requirements Document (PRD) Pydantic object.
     """
-    # Check if API key is configured before calling Gemini
-    if not api_key:
-        raise ValueError(
-            "GEMINI_API_KEY is missing. Please set it in your backend/.env file."
-        )
+    # Configure Gemini SDK with the loaded API key
+    configure_gemini()
 
     # ==========================================================================
     # Step 3: Format Feedback Items & RICE Context for the AI Prompt
     # ==========================================================================
-    # Format the cluster's feedback items into a clean summary list for the prompt
     feedback_summary = "\n".join(
         [
             f"- [{item.sentiment} | {item.intent} | Urgency: {item.urgency}] \"{item.text}\""
@@ -46,7 +53,6 @@ def generate_prd(cluster: FeedbackCluster) -> PRD:
     # ==========================================================================
     # Step 4: Construct the AI Prompt
     # ==========================================================================
-    # Ask Gemini to act as a Senior Product Manager and generate PRD fields based on cluster data
     prompt = f"""
     You are a Senior Product Manager. Draft a comprehensive Product Requirements Document (PRD) for the following prioritized feedback cluster:
 
@@ -88,8 +94,8 @@ def generate_prd(cluster: FeedbackCluster) -> PRD:
     # Step 5: Call Gemini API & Parse Output
     # ==========================================================================
     try:
-        # Initialize Gemini 2.0 Flash model (fast and optimized for structured text generation)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        # Initialize Gemini 3.6 Flash model
+        model = genai.GenerativeModel("gemini-3.6-flash")
 
         # Request JSON output from Gemini
         response = model.generate_content(
