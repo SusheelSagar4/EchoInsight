@@ -161,19 +161,21 @@ ${kpis}`
 
   return (
     <div className="app-container">
-      {/* App Heading */}
-      <h1 className="app-title">EchoInsight — Feedback to PRD Pipeline</h1>
-
-      {/* App Subheading */}
-      <p className="app-subtitle">
-        Paste raw customer feedback below (one item per line) or upload a CSV file
-      </p>
+      {/* App Header */}
+      <header className="app-header">
+        <span className="eyebrow">AUTONOMOUS FEEDBACK PIPELINE</span>
+        <h1 className="app-title">EchoInsight — Feedback to PRD Pipeline</h1>
+        <p className="app-subtitle">
+          Paste raw customer feedback below (one item per line) or upload a CSV file
+        </p>
+      </header>
 
       {/* Input container: Textarea and CSV Upload */}
       <div className="input-container">
+        <span className="eyebrow input-eyebrow">FEEDBACK INPUT</span>
         <textarea
           className="feedback-textarea"
-          rows={10}
+          rows={8}
           value={rawFeedback}
           onChange={(e) => {
             setRawFeedback(e.target.value)
@@ -188,21 +190,25 @@ ${kpis}`
         />
 
         {/* Visual Divider */}
-        <p className="input-divider">— OR —</p>
+        <div className="input-divider">
+          <span>OR</span>
+        </div>
 
         {/* CSV File Upload Section */}
         <div className="csv-upload-container">
-          <label className="file-input-label">Upload Feedback CSV:</label>
-          <input
-            type="file"
-            accept=".csv"
-            className="file-input"
-            onChange={(e) => {
-              const file = e.target.files[0] || null
-              setUploadedFile(file)
-              if (file) setRawFeedback('') // Clear text input when a file is selected
-            }}
-          />
+          <label className="file-input-label">
+            <span className="eyebrow file-eyebrow">FEEDBACK CSV FILE</span>
+            <input
+              type="file"
+              accept=".csv"
+              className="file-input"
+              onChange={(e) => {
+                const file = e.target.files[0] || null
+                setUploadedFile(file)
+                if (file) setRawFeedback('') // Clear text input when a file is selected
+              }}
+            />
+          </label>
 
           {/* Display selected file name and clear button */}
           {uploadedFile && (
@@ -234,7 +240,10 @@ ${kpis}`
       {/* Clusters Section: Rendered only when clusters array is non-empty */}
       {clusters.length > 0 && (
         <div className="clusters-container">
-          <h2 className="clusters-heading">Feedback Clusters</h2>
+          <div className="clusters-header">
+            <span className="eyebrow">ANALYSIS & PRIORITIZATION</span>
+            <h2 className="clusters-heading">Feedback Clusters</h2>
+          </div>
           <div className="clusters-list">
             {clusters.map((cluster, index) => {
               const prd = generatedPRDs[cluster.theme_name]
@@ -247,23 +256,37 @@ ${kpis}`
                   <h3 className="cluster-title">{cluster.theme_name}</h3>
 
                   {/* Metadata: RICE score (rounded to 1 decimal place) & Frequency */}
-                  <div className="cluster-meta">
-                    <p className="cluster-rice">
-                      RICE Score: {Number(cluster.rice_score || 0).toFixed(1)}
-                    </p>
-                    <p className="cluster-frequency">
-                      Frequency: {cluster.frequency} mentions
-                    </p>
+                  <div className="cluster-meta-grid">
+                    <div className="stat-card rice-stat">
+                      <span className="eyebrow stat-label">RICE SCORE</span>
+                      <span className="stat-value rice-hero-score">
+                        {Number(cluster.rice_score || 0).toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="stat-card freq-stat">
+                      <span className="eyebrow stat-label">FREQUENCY</span>
+                      <span className="stat-value freq-value">
+                        {cluster.frequency} <span className="stat-unit">mentions</span>
+                      </span>
+                    </div>
                   </div>
 
                   {/* List of raw feedback items with sentiment, intent, and urgency */}
-                  <ul className="feedback-list">
-                    {cluster.feedback_items?.map((item, itemIdx) => (
-                      <li key={itemIdx} className="feedback-item">
-                        {item.text} — [{item.sentiment}, {item.intent}, {item.urgency}]
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="feedback-section">
+                    <span className="eyebrow section-eyebrow">CLASSIFIED FEEDBACK</span>
+                    <ul className="feedback-list">
+                      {cluster.feedback_items?.map((item, itemIdx) => (
+                        <li key={itemIdx} className="feedback-item">
+                          <span className="feedback-text">{item.text}</span>
+                          <span className="feedback-tags">
+                            <span className="tag sentiment-tag">{item.sentiment}</span>
+                            <span className="tag intent-tag">{item.intent}</span>
+                            <span className="tag urgency-tag">{item.urgency}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
 
                   {/* Button to generate PRD for this cluster */}
                   <button
@@ -279,24 +302,24 @@ ${kpis}`
                     <div className="prd-card">
                       <h4 className="prd-title">{prd.title}</h4>
 
-                      <h5 className="prd-section-label">Problem Statement</h5>
+                      <span className="eyebrow prd-section-eyebrow">PROBLEM STATEMENT</span>
                       <p className="prd-text">{prd.problem_statement}</p>
 
-                      <h5 className="prd-section-label">User Stories</h5>
+                      <span className="eyebrow prd-section-eyebrow">USER STORIES</span>
                       <ul className="prd-list">
                         {prd.user_stories?.map((story, i) => (
                           <li key={i}>{story}</li>
                         ))}
                       </ul>
 
-                      <h5 className="prd-section-label">Acceptance Criteria</h5>
+                      <span className="eyebrow prd-section-eyebrow">ACCEPTANCE CRITERIA</span>
                       <ul className="prd-list">
                         {prd.acceptance_criteria?.map((criteria, i) => (
                           <li key={i}>{criteria}</li>
                         ))}
                       </ul>
 
-                      <h5 className="prd-section-label">KPIs</h5>
+                      <span className="eyebrow prd-section-eyebrow">KPIS</span>
                       <ul className="prd-list">
                         {prd.kpis?.map((kpi, i) => (
                           <li key={i}>{kpi}</li>
