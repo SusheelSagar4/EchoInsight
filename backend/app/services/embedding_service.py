@@ -24,6 +24,7 @@ Why is this useful?
 ==============================================================================
 """
 
+import google.generativeai as genai
 from .gemini_config import configure_gemini
 
 

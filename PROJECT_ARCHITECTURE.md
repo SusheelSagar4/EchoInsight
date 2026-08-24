@@ -168,6 +168,8 @@ class FeedbackCluster(BaseModel):
     confidence: float
     effort: float
     rice_score: float
+    affected_count: int = 0
+    negative_feedback_count: int = 0
 
 class PRD(BaseModel):
     title: str
@@ -375,3 +377,4 @@ This script launches backend uvicorn on port 8000 and frontend Vite dev server c
 | **2026-08-24** | `v1.1` | Antigravity AI | Created branch `v1.1`, added workspace `.agents/rules/documentation_maintenance.md`, and expanded `PROJECT_ARCHITECTURE.md`. |
 | **2026-08-24** | `v1.1` | Antigravity AI | Explicitly configured `docs_url="/docs"` and `openapi_url="/openapi.json"` in `main.py`, and updated Render start command to use dynamic `${PORT:-8000}` binding. |
 | **2026-08-24** | `v1.1` | Antigravity AI | Configured `VITE_API_URL=https://echoinsight.onrender.com` in `frontend/.env`, verified production build, tested CORS preflight, and updated documentation. |
+| **2026-08-24** | `v1.1` | Antigravity AI | Added `affected_count` and `negative_feedback_count` to `FeedbackCluster` schema, updated `clustering_service.py` calculation, and rendered metric cards in React UI. |

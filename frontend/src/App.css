@@ -342,6 +342,22 @@
   margin-top: 0.45rem;
 }
 
+.affected-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #60a5fa;
+  line-height: 1.2;
+  margin-top: 0.45rem;
+}
+
+.friction-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #f87171;
+  line-height: 1.2;
+  margin-top: 0.45rem;
+}
+
 .stat-unit {
   font-size: 0.9rem;
   font-weight: 400;

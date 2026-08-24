@@ -30,6 +30,8 @@ class FeedbackCluster(BaseModel):
     confidence: float
     effort: float
     rice_score: float
+    affected_count: int = 0
+    negative_feedback_count: int = 0
 
 
 class PRD(BaseModel):

@@ -263,7 +263,7 @@ ${kpis}`
                   {/* Theme Name Subheading */}
                   <h3 className="cluster-title">{cluster.theme_name}</h3>
 
-                  {/* Metadata: RICE score (rounded to 1 decimal place) & Frequency */}
+                  {/* Metadata: RICE score, Frequency, Total Affected Users, and Friction Points */}
                   <div className="cluster-meta-grid">
                     <div className="stat-card rice-stat">
                       <span className="eyebrow stat-label">RICE SCORE</span>
@@ -277,6 +277,20 @@ ${kpis}`
                         {cluster.frequency} <span className="stat-unit">mentions</span>
                       </span>
                     </div>
+                    <div className="stat-card affected-stat">
+                      <span className="eyebrow stat-label">AFFECTED USERS</span>
+                      <span className="stat-value affected-value">
+                        👥 {cluster.affected_count || cluster.frequency || 0} <span className="stat-unit">reports</span>
+                      </span>
+                    </div>
+                    {cluster.negative_feedback_count > 0 && (
+                      <div className="stat-card friction-stat">
+                        <span className="eyebrow stat-label">FRICTION / BUGS</span>
+                        <span className="stat-value friction-value">
+                          🚨 {cluster.negative_feedback_count} <span className="stat-unit">issues</span>
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* List of raw feedback items with sentiment, intent, and urgency */}

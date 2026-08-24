@@ -80,7 +80,7 @@ def cluster_feedback(raw_feedback: str) -> list[FeedbackCluster]:
     # Step 4: Call Gemini API & Parse Output
     # ==========================================================================
     try:
-        # Initialize Gemini 3.6 Flash model (fast, accurate, and free-tier friendly)
+        # Initialize Gemini 3.6 Flash model
         model = genai.GenerativeModel("gemini-3.6-flash")
 
         # Request JSON output from Gemini model
@@ -154,6 +154,20 @@ def cluster_feedback(raw_feedback: str) -> list[FeedbackCluster]:
         except Exception as vector_err:
             # Log a warning message if vector memory search/storage fails, allowing clustering to succeed
             print(f"Warning: Vector memory search or storage failed: {str(vector_err)}")
+
+        # ==========================================================================
+        # Step 6: Compute Aggregate Metrics (Affected Users & Friction Count)
+        # ==========================================================================
+        for cluster in clusters:
+            # affected_count = count of unique feedback items + historical ChromaDB matches
+            cluster.affected_count = len(cluster.feedback_items) + sum(
+                item.similar_past_count for item in cluster.feedback_items
+            )
+            # negative_feedback_count = count of items with intent 'Bug'/'UX Friction' or 'Negative' sentiment
+            cluster.negative_feedback_count = sum(
+                1 for item in cluster.feedback_items
+                if item.intent in ["Bug", "UX Friction"] or item.sentiment == "Negative"
+            )
 
         return clusters
 
