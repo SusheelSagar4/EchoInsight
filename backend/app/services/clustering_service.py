@@ -3,35 +3,10 @@ import os
 from pathlib import Path
 import uuid
 import google.generativeai as genai
-from dotenv import load_dotenv
-
 from ..models import FeedbackCluster, FeedbackItem
 from .embedding_service import get_embedding
+from .gemini_config import configure_gemini
 from .vector_store_service import find_similar_feedback, store_feedback_item
-
-# ==============================================================================
-# Step 1: Explicitly Locate and Load backend/.env File
-# ==============================================================================
-# Find the exact path to backend/.env relative to this file's location
-# clustering_service.py -> app/services/ -> app/ -> backend/ -> .env
-ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(dotenv_path=ENV_PATH, override=True)
-
-
-# Helper function to get and configure the Gemini API key
-def configure_gemini():
-    # Reload environment to ensure latest key from backend/.env is active
-    load_dotenv(dotenv_path=ENV_PATH, override=True)
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-
-    if not api_key:
-        raise ValueError(
-            f"GEMINI_API_KEY is missing or empty in {ENV_PATH}. Please add a valid Gemini API key to backend/.env."
-        )
-
-    # Configure google-generativeai SDK explicitly before any model call
-    genai.configure(api_key=api_key)
-    return api_key
 
 
 # ==============================================================================

@@ -44,3 +44,12 @@ class PRD(BaseModel):
     acceptance_criteria: list[str]
     kpis: list[str]
     linked_cluster: FeedbackCluster
+
+
+class ClusterRequest(BaseModel):
+    """
+    Schema for incoming raw feedback payload sent by the frontend client.
+    """
+
+    raw_feedback: str
+

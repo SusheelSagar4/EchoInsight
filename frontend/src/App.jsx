@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import './App.css'
 
+// Base URL for backend API requests, loaded from environment variables or defaulting to localhost
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+
 // Main functional component for the EchoInsight user interface
 function App() {
   // State 1: Tracks the raw feedback text entered by the user in the textarea
@@ -91,13 +94,13 @@ ${kpis}`
         const formData = new FormData()
         formData.append('file', uploadedFile)
 
-        response = await fetch('http://127.0.0.1:8000/feedback/cluster-csv', {
+        response = await fetch(`${API_BASE_URL}/feedback/cluster-csv`, {
           method: 'POST',
           body: formData, // FormData automatically sets multipart/form-data boundary header
         })
       } else {
         // Path B: If no CSV file is selected, send raw feedback text as JSON to /feedback/cluster
-        response = await fetch('http://127.0.0.1:8000/feedback/cluster', {
+        response = await fetch(`${API_BASE_URL}/feedback/cluster`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -110,9 +113,8 @@ ${kpis}`
         throw new Error(`Server returned status code ${response.status}`)
       }
 
-      // On success: parse JSON, log to console, and store in clusters state
+      // On success: parse JSON and store in clusters state
       const data = await response.json()
-      console.log('Clustering result:', data)
       setClusters(data)
     } catch (error) {
       // On failure: log error to console and show user alert
@@ -131,7 +133,7 @@ ${kpis}`
 
     try {
       // 2. Send POST request to backend /feedback/prd endpoint with cluster object
-      const response = await fetch('http://127.0.0.1:8000/feedback/prd', {
+      const response = await fetch(`${API_BASE_URL}/feedback/prd`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -177,6 +179,7 @@ ${kpis}`
           className="feedback-textarea"
           rows={8}
           value={rawFeedback}
+          aria-label="Paste customer feedback here"
           onChange={(e) => {
             setRawFeedback(e.target.value)
             if (uploadedFile) setUploadedFile(null) // Clear file selection when user types in textarea
@@ -202,6 +205,7 @@ ${kpis}`
               type="file"
               accept=".csv"
               className="file-input"
+              aria-label="Upload feedback CSV file"
               onChange={(e) => {
                 const file = e.target.files[0] || null
                 setUploadedFile(file)

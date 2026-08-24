@@ -1,8 +1,7 @@
 import csv
 import io
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from pydantic import BaseModel
-from ..models import FeedbackCluster, PRD
+from ..models import ClusterRequest, FeedbackCluster, PRD
 from ..services.clustering_service import cluster_feedback
 from ..services.prd_service import generate_prd
 
@@ -11,16 +10,6 @@ from ..services.prd_service import generate_prd
 # ==============================================================================
 # Create an APIRouter instance with a common path prefix `/feedback` and tag `feedback` for API documentation
 router = APIRouter(prefix="/feedback", tags=["feedback"])
-
-
-# ==============================================================================
-# Request Body Model for Clustering
-# ==============================================================================
-class ClusterRequest(BaseModel):
-    """
-    Schema for incoming raw feedback payload sent by the frontend client.
-    """
-    raw_feedback: str
 
 
 # ==============================================================================
@@ -38,6 +27,13 @@ def cluster_feedback_endpoint(request: ClusterRequest) -> list[FeedbackCluster]:
     """
     Endpoint to process raw feedback text and return structured thematic clusters with RICE scores.
     """
+    # Validate raw feedback text input
+    if not request.raw_feedback or not request.raw_feedback.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Raw feedback text must not be empty or contain only whitespace."
+        )
+
     try:
         clusters = cluster_feedback(request.raw_feedback)
         return clusters
@@ -65,6 +61,13 @@ async def cluster_csv_endpoint(file: UploadFile = File(...)) -> list[FeedbackClu
     Endpoint to process an uploaded CSV file, extract feedback text from column 1,
     and return structured thematic clusters with RICE scores.
     """
+    # Validate file extension
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file must have a .csv extension."
+        )
+
     # 1. Parse uploaded CSV file contents
     try:
         # Read the binary data stream uploaded by the client
