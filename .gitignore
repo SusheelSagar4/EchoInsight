@@ -48,3 +48,8 @@ backend/.env
 Thumbs.db
 *.docx
 ~$*
+
+# Vector Database
+chroma_data/
+backend/chroma_data/
+

@@ -1,9 +1,13 @@
 import json
 import os
 from pathlib import Path
+import uuid
 import google.generativeai as genai
 from dotenv import load_dotenv
+
 from ..models import FeedbackCluster, FeedbackItem
+from .embedding_service import get_embedding
+from .vector_store_service import find_similar_feedback, store_feedback_item
 
 # ==============================================================================
 # Step 1: Explicitly Locate and Load backend/.env File
@@ -36,8 +40,9 @@ def configure_gemini():
 def cluster_feedback(raw_feedback: str) -> list[FeedbackCluster]:
     """
     Takes raw customer feedback text (one item per line), sends it to Gemini AI for
-    sentiment tagging, thematic grouping, and RICE prioritization scoring, and returns
-    a list of structured FeedbackCluster objects.
+    sentiment tagging, thematic grouping, and RICE prioritization scoring, enriches
+    items with past vector similarity counts, stores items in long-term memory (ChromaDB),
+    and returns a list of structured FeedbackCluster objects.
     """
     # Configure Gemini SDK with the loaded API key
     configure_gemini()
@@ -131,8 +136,53 @@ def cluster_feedback(raw_feedback: str) -> list[FeedbackCluster]:
         # Convert raw dictionaries into validated Pydantic FeedbackCluster objects
         clusters = [FeedbackCluster(**item) for item in parsed_json]
 
+        # ==========================================================================
+        # Step 5: Long-Term Vector Memory & Similarity Search Enrichment
+        # ==========================================================================
+        # This section checks ChromaDB for past feedback similar to each item in the
+        # current cluster, sets similar_past_count, and stores the new items for future calls.
+        # Wrapped in try/except so vector memory failures log a warning without crashing clustering.
+        try:
+            for cluster in clusters:
+                for item in cluster.feedback_items:
+                    # a. Generate an embedding vector for the feedback item's text
+                    item_embedding = get_embedding(item.text)
+
+                    # b. Query ChromaDB for top 5 most similar past feedback items
+                    past_matches = find_similar_feedback(embedding=item_embedding, top_k=5)
+
+                    # c. Count matches with a similarity distance below 0.3
+                    # Plain-English explanation: Distance measures how different two vectors are.
+                    # A distance closer to 0 means higher similarity. We consider distance < 0.3
+                    # as a "meaningful semantic match".
+                    # NOTE: This threshold value (0.3) can be adjusted/tuned based on real-world results.
+                    similar_count = sum(
+                        1 for match in past_matches if match.get("distance", 1.0) < 0.3
+                    )
+
+                    # d. Set the feedback item's similar_past_count field
+                    item.similar_past_count = similar_count
+
+                    # e. Generate a unique ID for this feedback item using UUID v4
+                    item_id = str(uuid.uuid4())
+
+                    # f. Store this feedback item and its embedding into ChromaDB memory
+                    store_feedback_item(
+                        item_id=item_id,
+                        text=item.text,
+                        embedding=item_embedding,
+                        theme_name=cluster.theme_name,
+                        sentiment=item.sentiment,
+                        intent=item.intent,
+                        urgency=item.urgency
+                    )
+        except Exception as vector_err:
+            # Log a warning message if vector memory search/storage fails, allowing clustering to succeed
+            print(f"Warning: Vector memory search or storage failed: {str(vector_err)}")
+
         return clusters
 
     except Exception as e:
         # Catch any API network, parsing, or Pydantic validation errors and raise a clear ValueError
         raise ValueError(f"Failed to process and cluster feedback with Gemini: {str(e)}")
+

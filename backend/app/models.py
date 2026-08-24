@@ -12,6 +12,8 @@ class FeedbackItem(BaseModel):
     sentiment: Literal["Positive", "Negative", "Neutral"]
     intent: Literal["Bug", "Feature Request", "UX Friction"]
     urgency: Literal["Low", "Medium", "High"]
+    similar_past_count: int = 0  # Represents how many similar past feedback items were found for this item
+
 
 
 class FeedbackCluster(BaseModel):
