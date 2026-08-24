@@ -278,6 +278,12 @@ ${kpis}`
                       {cluster.feedback_items?.map((item, itemIdx) => (
                         <li key={itemIdx} className="feedback-item">
                           <span className="feedback-text">{item.text}</span>
+                          {/* Vector Memory Badge: Displays how many semantically similar past feedback items were retrieved from ChromaDB long-term memory */}
+                          {item.similar_past_count > 0 && (
+                            <span className="repeat-badge">
+                              🔁 Seen {item.similar_past_count}x before
+                            </span>
+                          )}
                           <span className="feedback-tags">
                             <span className="tag sentiment-tag">{item.sentiment}</span>
                             <span className="tag intent-tag">{item.intent}</span>
