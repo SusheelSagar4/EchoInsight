@@ -10,10 +10,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .routers.feedback import router as feedback_router
 
-# Create main FastAPI application instance with title and description
+# Create main FastAPI application instance with explicit docs and openapi configuration
 app = FastAPI(
     title="EchoInsight API",
-    description="Autonomous Customer Feedback-to-PRD Pipeline"
+    description="Autonomous Customer Feedback-to-PRD Pipeline",
+    version="1.1",
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+    redoc_url="/redoc"
 )
 
 # Add CORS middleware allowing all origins for local development (frontend runs on different port)

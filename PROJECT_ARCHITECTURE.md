@@ -119,6 +119,9 @@ EchoInsight/
 | HTTP Method | Path | Request Body / Payload | Response Model | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `GET` | `/` | None | `{"status": str}` | Health check / API sanity endpoint |
+| `GET` | `/docs` | None | HTML (Swagger UI) | Interactive Swagger API documentation |
+| `GET` | `/openapi.json` | None | JSON Schema | OpenAPI 3.0 schema definition |
+| `GET` | `/redoc` | None | HTML (ReDoc) | Alternative ReDoc API documentation |
 | `POST` | `/feedback/cluster` | `ClusterRequest` (`{"raw_feedback": str}`) | `list[FeedbackCluster]` | Processes raw feedback text, tags sentiment/intent, queries ChromaDB, groups into clusters with RICE scores. |
 | `POST` | `/feedback/cluster-csv` | `UploadFile` (multipart `.csv`) | `list[FeedbackCluster]` | Parses column 1 of uploaded CSV file and executes clustering pipeline. |
 | `POST` | `/feedback/prd` | `FeedbackCluster` | `PRD` | Generates a complete PRD document for a specific feedback cluster. |
@@ -279,7 +282,8 @@ This script launches backend uvicorn on port 8000 and frontend Vite dev server c
 - **Backend (Render / Railway / Cloud Run)**:
   - Environment: Python 3.10+
   - Build Command: `pip install -r requirements.txt`
-  - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port 8000`
+  - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}`
+  - Note on Render Port Binding: Render assigns a dynamic environment variable `$PORT` at runtime. Using `--port ${PORT:-8000}` ensures the server binds to Render's allocated port dynamically while defaulting to 8000 in local dev.
   - Environment Variable: `GEMINI_API_KEY`
 - **Frontend (Vercel / Netlify / Render Static Site)**:
   - Build Command: `npm run build`
@@ -366,3 +370,4 @@ This script launches backend uvicorn on port 8000 and frontend Vite dev server c
 | **2026-08-24** | `main` | Antigravity AI | Cleaned debug print statements, unified 400 validations, consolidated `gemini_config.py`. |
 | **2026-08-24** | `v1.1` | Antigravity AI | Converted `requirements.txt` to UTF-8 with `>=` constraints for Render deployment. |
 | **2026-08-24** | `v1.1` | Antigravity AI | Created branch `v1.1`, added workspace `.agents/rules/documentation_maintenance.md`, and expanded `PROJECT_ARCHITECTURE.md`. |
+| **2026-08-24** | `v1.1` | Antigravity AI | Explicitly configured `docs_url="/docs"` and `openapi_url="/openapi.json"` in `main.py`, and updated Render start command to use dynamic `${PORT:-8000}` binding. |
