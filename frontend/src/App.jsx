@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import './App.css'
 
-// Base URL for backend API requests, loaded from environment variables (sanitized to remove trailing slashes) or defaulting to localhost
-const rawApiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
-const API_BASE_URL = rawApiUrl.replace(/\/+$/, '')
+// Base URL for backend API requests, loaded from environment variables (sanitized to remove trailing slashes) or defaulting to live Render backend
+const RAW_API_URL = import.meta.env.VITE_API_URL || 'https://echoinsight.onrender.com'
+const API_BASE_URL = RAW_API_URL.replace(/\/+$/, '')
 
 // Main functional component for the EchoInsight user interface
 function App() {
@@ -124,7 +124,7 @@ ${kpis}`
       console.error('Error clustering feedback:', error)
       const isNetworkError = error.message?.includes('Failed to fetch') || error.name === 'TypeError'
       const displayMsg = isNetworkError
-        ? 'Could not connect to backend server. The Render backend may be waking up from cold start — please wait 30-50 seconds and click "Cluster Feedback" again.'
+        ? 'Server is waking up (Render cold start) or unreachable. Please wait ~30 seconds and try again.'
         : error.message
       alert(`Failed to cluster feedback: ${displayMsg}`)
     } finally {
@@ -165,7 +165,7 @@ ${kpis}`
       console.error('Error generating PRD:', error)
       const isNetworkError = error.message?.includes('Failed to fetch') || error.name === 'TypeError'
       const displayMsg = isNetworkError
-        ? 'Could not connect to backend server. The server may be waking up from a cold start — please try again in a few seconds.'
+        ? 'Server is waking up (Render cold start) or unreachable. Please wait ~30 seconds and try again.'
         : error.message
       alert(`Failed to generate PRD: ${displayMsg}`)
     } finally {

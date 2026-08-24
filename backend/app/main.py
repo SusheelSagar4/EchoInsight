@@ -20,11 +20,11 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Add CORS middleware allowing all origins (allow_credentials=False for standard W3C fetch wildcard compatibility)
+# Add CORS middleware allowing all origins, credentials, methods, and headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
