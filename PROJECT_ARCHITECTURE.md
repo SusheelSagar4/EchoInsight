@@ -244,12 +244,12 @@ GEMINI_API_KEY=AIzaSy...
 
 ### Frontend Configuration ([`frontend/.env`](file:///c:/Bunty/IIT%20BBS/PM/EchoInsight/frontend/.env))
 ```ini
-# Base URL for EchoInsight FastAPI Backend
-VITE_API_URL=http://127.0.0.1:8000
+# Base URL for EchoInsight FastAPI Backend (Render Production)
+VITE_API_URL=https://echoinsight.onrender.com
 ```
 
 - Loaded dynamically in `frontend/src/App.jsx` using `import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"`.
-- Enables seamless switching between local development (`localhost:8000`) and production deployment endpoints.
+- Points to the live Render backend (`https://echoinsight.onrender.com`), enabling seamless production cross-origin API calls.
 
 ---
 
@@ -279,7 +279,10 @@ This script launches backend uvicorn on port 8000 and frontend Vite dev server c
 
 ### Production Deployment Strategy
 
-- **Backend (Render / Railway / Cloud Run)**:
+- **Backend (Render Live Deployment)**:
+  - Live API Endpoint: `https://echoinsight.onrender.com`
+  - Documentation Endpoint: `https://echoinsight.onrender.com/docs`
+  - Health Check: `https://echoinsight.onrender.com/`
   - Environment: Python 3.10+
   - Build Command: `pip install -r requirements.txt`
   - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}`
@@ -288,7 +291,7 @@ This script launches backend uvicorn on port 8000 and frontend Vite dev server c
 - **Frontend (Vercel / Netlify / Render Static Site)**:
   - Build Command: `npm run build`
   - Publish Directory: `dist`
-  - Environment Variable: `VITE_API_URL=https://your-backend-service.onrender.com`
+  - Environment Variable: `VITE_API_URL=https://echoinsight.onrender.com`
 
 ---
 
@@ -371,3 +374,4 @@ This script launches backend uvicorn on port 8000 and frontend Vite dev server c
 | **2026-08-24** | `v1.1` | Antigravity AI | Converted `requirements.txt` to UTF-8 with `>=` constraints for Render deployment. |
 | **2026-08-24** | `v1.1` | Antigravity AI | Created branch `v1.1`, added workspace `.agents/rules/documentation_maintenance.md`, and expanded `PROJECT_ARCHITECTURE.md`. |
 | **2026-08-24** | `v1.1` | Antigravity AI | Explicitly configured `docs_url="/docs"` and `openapi_url="/openapi.json"` in `main.py`, and updated Render start command to use dynamic `${PORT:-8000}` binding. |
+| **2026-08-24** | `v1.1` | Antigravity AI | Configured `VITE_API_URL=https://echoinsight.onrender.com` in `frontend/.env`, verified production build, tested CORS preflight, and updated documentation. |

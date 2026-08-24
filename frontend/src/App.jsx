@@ -110,16 +110,18 @@ ${kpis}`
       }
 
       if (!response.ok) {
-        throw new Error(`Server returned status code ${response.status}`)
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.detail || `Server returned status code ${response.status}`
+        throw new Error(errorMessage)
       }
 
       // On success: parse JSON and store in clusters state
       const data = await response.json()
       setClusters(data)
     } catch (error) {
-      // On failure: log error to console and show user alert
+      // On failure: log error to console and show user alert with detailed message
       console.error('Error clustering feedback:', error)
-      alert('Failed to cluster feedback, check console for details')
+      alert(`Failed to cluster feedback: ${error.message}`)
     } finally {
       // Always reset loading state when request completes (success or failure)
       setIsLoading(false)
@@ -142,7 +144,9 @@ ${kpis}`
       })
 
       if (!response.ok) {
-        throw new Error(`Server returned status code ${response.status}`)
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.detail || `Server returned status code ${response.status}`
+        throw new Error(errorMessage)
       }
 
       // 3. Parse PRD object and save into generatedPRDs dictionary keyed by theme_name
@@ -152,9 +156,9 @@ ${kpis}`
         [cluster.theme_name]: prdData,
       }))
     } catch (error) {
-      // 4. Handle PRD generation error
+      // 4. Handle PRD generation error with detailed message
       console.error('Error generating PRD:', error)
-      alert('Failed to generate PRD, check console for details')
+      alert(`Failed to generate PRD: ${error.message}`)
     } finally {
       // 5. Clear per-card loading state regardless of outcome
       setLoadingPRDFor(null)
