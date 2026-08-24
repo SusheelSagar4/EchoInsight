@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import './App.css'
 
-// Base URL for backend API requests, loaded from environment variables or defaulting to localhost
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+// Base URL for backend API requests, loaded from environment variables (sanitized to remove trailing slashes) or defaulting to localhost
+const rawApiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+const API_BASE_URL = rawApiUrl.replace(/\/+$/, '')
 
 // Main functional component for the EchoInsight user interface
 function App() {
@@ -121,7 +122,11 @@ ${kpis}`
     } catch (error) {
       // On failure: log error to console and show user alert with detailed message
       console.error('Error clustering feedback:', error)
-      alert(`Failed to cluster feedback: ${error.message}`)
+      const isNetworkError = error.message?.includes('Failed to fetch') || error.name === 'TypeError'
+      const displayMsg = isNetworkError
+        ? 'Could not connect to backend server. The Render backend may be waking up from cold start — please wait 30-50 seconds and click "Cluster Feedback" again.'
+        : error.message
+      alert(`Failed to cluster feedback: ${displayMsg}`)
     } finally {
       // Always reset loading state when request completes (success or failure)
       setIsLoading(false)
@@ -158,7 +163,11 @@ ${kpis}`
     } catch (error) {
       // 4. Handle PRD generation error with detailed message
       console.error('Error generating PRD:', error)
-      alert(`Failed to generate PRD: ${error.message}`)
+      const isNetworkError = error.message?.includes('Failed to fetch') || error.name === 'TypeError'
+      const displayMsg = isNetworkError
+        ? 'Could not connect to backend server. The server may be waking up from a cold start — please try again in a few seconds.'
+        : error.message
+      alert(`Failed to generate PRD: ${displayMsg}`)
     } finally {
       // 5. Clear per-card loading state regardless of outcome
       setLoadingPRDFor(null)
