@@ -230,8 +230,8 @@ function App() {
     const particles = []
 
     for (let i = 0; i < particleCount; i++) {
-      const baseVx = (Math.random() - 0.5) * 1.2
-      const baseVy = (Math.random() - 0.5) * 1.2
+      const baseVx = (Math.random() - 0.5) * 0.65
+      const baseVy = (Math.random() - 0.5) * 0.65
       particles.push({
         x: Math.random() * (canvas.width || 1),
         y: Math.random() * (canvas.height || 1),
@@ -299,15 +299,15 @@ function App() {
 
           if (dist < repulsionRadius && dist > 0) {
             const forceFactor = 1 - dist / repulsionRadius
-            const force = forceFactor * forceFactor * 9.0
+            const force = forceFactor * forceFactor * 6.0
             const angle = Math.atan2(dy, dx)
-            p.vx += Math.cos(angle) * force * 0.35
-            p.vy += Math.sin(angle) * force * 0.35
+            p.vx += Math.cos(angle) * force * 0.22
+            p.vy += Math.sin(angle) * force * 0.22
           }
         }
 
         const currentSpeed = Math.sqrt(p.vx * p.vx + p.vy * p.vy)
-        const maxSpeed = 8.5
+        const maxSpeed = 5.0
         if (currentSpeed > maxSpeed) {
           p.vx = (p.vx / currentSpeed) * maxSpeed
           p.vy = (p.vy / currentSpeed) * maxSpeed
