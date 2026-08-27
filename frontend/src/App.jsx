@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import './App.css'
 
 // Base URL for backend API requests, loaded from environment variables (sanitized to remove trailing slashes) or defaulting to live Render backend
@@ -27,6 +27,38 @@ function App() {
 
   // State 7: Tracks which cluster theme_name currently shows "Copied!" feedback (null if none)
   const [copiedPRDFor, setCopiedPRDFor] = useState(null)
+
+  // Scroll reveal observer for dynamic cluster and PRD cards
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible')
+          }
+        })
+      },
+      { threshold: 0.08 }
+    )
+
+    const elements = document.querySelectorAll('.scroll-reveal')
+    elements.forEach((el) => observer.observe(el))
+
+    return () => observer.disconnect()
+  }, [clusters, generatedPRDs])
+
+  // Smooth scroll navigation helpers
+  const scrollToTool = () => {
+    document.getElementById('tool-section')?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const scrollToClusters = () => {
+    if (clusters.length > 0) {
+      document.getElementById('clusters-section')?.scrollIntoView({ behavior: 'smooth' })
+    } else {
+      scrollToTool()
+    }
+  }
 
   // Helper function to format PRD object into structured Markdown text
   const formatPRDAsMarkdown = (prd) => {
@@ -62,21 +94,13 @@ ${kpis}`
   // Handler function to copy PRD markdown to system clipboard
   const handleCopyMarkdown = async (cluster, prd) => {
     try {
-      // 1. Format PRD data into Markdown string structure
       const markdownText = formatPRDAsMarkdown(prd)
-
-      // 2. Write text to user's system clipboard using standard browser API
       await navigator.clipboard.writeText(markdownText)
-
-      // 3. Update copied state to display "Copied!" feedback
       setCopiedPRDFor(cluster.theme_name)
-
-      // 4. Automatically reset copied state back to null after 2000ms
       setTimeout(() => {
         setCopiedPRDFor(null)
       }, 2000)
     } catch (error) {
-      // Handle clipboard API failures
       console.error('Error copying markdown to clipboard:', error)
       alert('Failed to copy, check console for details')
     }
@@ -84,23 +108,19 @@ ${kpis}`
 
   // Handler function triggered when user clicks the "Cluster Feedback" button
   const handleClusterFeedback = async () => {
-    // 1. Indicate loading start
     setIsLoading(true)
-
     try {
       let response
 
       if (uploadedFile) {
-        // Path A: If a CSV file is selected, construct FormData and POST to /feedback/cluster-csv
         const formData = new FormData()
         formData.append('file', uploadedFile)
 
         response = await fetch(`${API_BASE_URL}/feedback/cluster-csv`, {
           method: 'POST',
-          body: formData, // FormData automatically sets multipart/form-data boundary header
+          body: formData,
         })
       } else {
-        // Path B: If no CSV file is selected, send raw feedback text as JSON to /feedback/cluster
         response = await fetch(`${API_BASE_URL}/feedback/cluster`, {
           method: 'POST',
           headers: {
@@ -116,11 +136,12 @@ ${kpis}`
         throw new Error(errorMessage)
       }
 
-      // On success: parse JSON and store in clusters state
       const data = await response.json()
       setClusters(data)
+      setTimeout(() => {
+        document.getElementById('clusters-section')?.scrollIntoView({ behavior: 'smooth' })
+      }, 100)
     } catch (error) {
-      // On failure: log error to console and show user alert with detailed message
       console.error('Error clustering feedback:', error)
       const isNetworkError = error.message?.includes('Failed to fetch') || error.name === 'TypeError'
       const displayMsg = isNetworkError
@@ -128,18 +149,14 @@ ${kpis}`
         : error.message
       alert(`Failed to cluster feedback: ${displayMsg}`)
     } finally {
-      // Always reset loading state when request completes (success or failure)
       setIsLoading(false)
     }
   }
 
   // Handler function triggered when user clicks "Generate PRD" on a cluster card
   const handleGeneratePRD = async (cluster) => {
-    // 1. Set per-card loading state to active cluster's theme_name
     setLoadingPRDFor(cluster.theme_name)
-
     try {
-      // 2. Send POST request to backend /feedback/prd endpoint with cluster object
       const response = await fetch(`${API_BASE_URL}/feedback/prd`, {
         method: 'POST',
         headers: {
@@ -154,14 +171,12 @@ ${kpis}`
         throw new Error(errorMessage)
       }
 
-      // 3. Parse PRD object and save into generatedPRDs dictionary keyed by theme_name
       const prdData = await response.json()
       setGeneratedPRDs((prev) => ({
         ...prev,
         [cluster.theme_name]: prdData,
       }))
     } catch (error) {
-      // 4. Handle PRD generation error with detailed message
       console.error('Error generating PRD:', error)
       const isNetworkError = error.message?.includes('Failed to fetch') || error.name === 'TypeError'
       const displayMsg = isNetworkError
@@ -169,218 +184,329 @@ ${kpis}`
         : error.message
       alert(`Failed to generate PRD: ${displayMsg}`)
     } finally {
-      // 5. Clear per-card loading state regardless of outcome
       setLoadingPRDFor(null)
     }
   }
 
   return (
-    <div className="app-container">
-      {/* App Header */}
-      <header className="app-header">
-        <span className="eyebrow">AUTONOMOUS FEEDBACK PIPELINE</span>
-        <h1 className="app-title">EchoInsight — Feedback to PRD Pipeline</h1>
-        <p className="app-subtitle">
-          Paste raw customer feedback below (one item per line) or upload a CSV file
-        </p>
+    <div className="page-wrapper">
+      {/* Fixed Subtle Noise Texture Overlay */}
+      <div className="noise-overlay" aria-hidden="true" />
+
+      {/* 3-Column Navigation Bar (sits above everything) */}
+      <header className="navbar-container">
+        <nav className="navbar">
+          {/* Column 1: Logo */}
+          <div className="nav-left animate-fade-up" style={{ '--delay': '0.1s' }}>
+            <a href="#" className="logo-link" aria-label="EchoInsight Home">
+              <svg className="logo-icon" width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="4" y="5" width="20" height="4.5" rx="2.25" fill="#FFFFFF" />
+                <rect x="4" y="12" width="13" height="4.5" rx="2.25" fill="#FFFFFF" fillOpacity="0.75" />
+                <rect x="4" y="19" width="20" height="4.5" rx="2.25" fill="#FFFFFF" />
+                <circle cx="22.5" cy="14.25" r="2.5" fill="#9A9A9A" />
+              </svg>
+              <span className="logo-wordmark">EchoInsight</span>
+            </a>
+          </div>
+
+          {/* Column 2: Nav Links */}
+          <div className="nav-center animate-fade-up" style={{ '--delay': '0.2s' }}>
+            <button type="button" onClick={scrollToTool} className="nav-pill shine-effect">
+              How It Works
+            </button>
+            <button type="button" onClick={scrollToClusters} className="nav-pill shine-effect">
+              Clusters
+            </button>
+            <button type="button" onClick={scrollToTool} className="nav-pill shine-effect">
+              PRD Generator
+            </button>
+          </div>
+
+          {/* Column 3: Nav CTA */}
+          <div className="nav-right animate-fade-up" style={{ '--delay': '0.3s' }}>
+            <button type="button" onClick={scrollToTool} className="btn-solid shine-effect nav-cta">
+              Try It Free
+            </button>
+          </div>
+        </nav>
       </header>
 
-      {/* Input container: Textarea and CSV Upload */}
-      <div className="input-container">
-        <span className="eyebrow input-eyebrow">FEEDBACK INPUT</span>
-        <textarea
-          className="feedback-textarea"
-          rows={8}
-          value={rawFeedback}
-          aria-label="Paste customer feedback here"
-          onChange={(e) => {
-            setRawFeedback(e.target.value)
-            if (uploadedFile) setUploadedFile(null) // Clear file selection when user types in textarea
-          }}
-          disabled={!!uploadedFile}
-          placeholder={
-            uploadedFile
-              ? `CSV file selected (${uploadedFile.name}). Clear file below to paste text.`
-              : "Users are asking for dark mode support\nThe export button crashes when exporting large reports\nNeed easier user onboarding steps"
-          }
-        />
+      {/* Hero Section (Bottom-Anchored Layout) */}
+      <section className="hero-section">
+        <div className="hero-container">
+          {/* Small Pill Badge */}
+          <div className="hero-badge animate-fade-up" style={{ '--delay': '0.4s' }}>
+            <span className="badge-pulse-dot" aria-hidden="true" />
+            <span>AI-Powered Feedback Intelligence</span>
+          </div>
 
-        {/* Visual Divider */}
-        <div className="input-divider">
-          <span>OR</span>
+          {/* Headline (Two Lines with Instrument Serif PRDs) */}
+          <h1 className="hero-headline">
+            <span className="headline-line animate-fade-up" style={{ '--delay': '0.5s' }}>
+              Turn customer feedback into
+            </span>
+            <span className="headline-line animate-fade-up" style={{ '--delay': '0.6s' }}>
+              prioritized <span className="serif-emphasized">PRDs</span> in seconds.
+            </span>
+          </h1>
+
+          {/* Subheadline */}
+          <p className="hero-subheadline animate-fade-up" style={{ '--delay': '0.7s' }}>
+            Paste raw feedback, get RICE-scored themes and structured product requirement docs — powered by Gemini and semantic memory.
+          </p>
+
+          {/* Action Buttons */}
+          <div className="hero-buttons-row animate-fade-up" style={{ '--delay': '0.9s' }}>
+            <button type="button" onClick={scrollToTool} className="btn-solid shine-effect hero-btn">
+              Try It Free
+            </button>
+            <button type="button" onClick={scrollToTool} className="btn-ghost shine-effect hero-btn">
+              See How It Works
+            </button>
+          </div>
+
+          {/* Stats Row at bottom of Hero */}
+          <div className="hero-stats-row animate-fade-up" style={{ '--delay': '1.1s' }}>
+            <div className="stat-fact-item">
+              <svg className="stat-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                <line x1="6" y1="6" x2="6.01" y2="6" />
+                <line x1="6" y1="18" x2="6.01" y2="18" />
+              </svg>
+              <span>3 AI-powered endpoints</span>
+            </div>
+            <div className="stat-fact-item">
+              <svg className="stat-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <ellipse cx="12" cy="5" rx="9" ry="3" />
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+              </svg>
+              <span>RAG-based semantic memory</span>
+            </div>
+            <div className="stat-fact-item">
+              <svg className="stat-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              </svg>
+              <span>RICE-scored prioritization</span>
+            </div>
+          </div>
         </div>
+      </section>
 
-        {/* CSV File Upload Section */}
-        <div className="csv-upload-container">
-          <label className="file-input-label">
-            <span className="eyebrow file-eyebrow">FEEDBACK CSV FILE</span>
-            <input
-              type="file"
-              accept=".csv"
-              className="file-input"
-              aria-label="Upload feedback CSV file"
+      {/* Main Tool Section (stays fully functional below hero) */}
+      <main id="tool-section" className="tool-section scroll-reveal">
+        <div className="tool-container">
+          {/* Tool Header */}
+          <div className="tool-header">
+            <span className="eyebrow-tag">AUTONOMOUS FEEDBACK PIPELINE</span>
+            <h2 className="tool-title">EchoInsight Engine</h2>
+            <p className="tool-subtitle">
+              Paste raw customer feedback below (one item per line) or upload a CSV file
+            </p>
+          </div>
+
+          {/* Input Container: Textarea & CSV Upload */}
+          <div className="input-card scroll-reveal">
+            <span className="eyebrow-tag">FEEDBACK INPUT</span>
+            <textarea
+              className="feedback-textarea"
+              rows={8}
+              value={rawFeedback}
+              aria-label="Paste customer feedback here"
               onChange={(e) => {
-                const file = e.target.files[0] || null
-                setUploadedFile(file)
-                if (file) setRawFeedback('') // Clear text input when a file is selected
+                setRawFeedback(e.target.value)
+                if (uploadedFile) setUploadedFile(null)
               }}
+              disabled={!!uploadedFile}
+              placeholder={
+                uploadedFile
+                  ? `CSV file selected (${uploadedFile.name}). Clear file below to paste text.`
+                  : "Users are asking for dark mode support\nThe export button crashes when exporting large reports\nNeed easier user onboarding steps"
+              }
             />
-          </label>
 
-          {/* Display selected file name and clear button */}
-          {uploadedFile && (
-            <div className="file-status">
-              <span className="selected-filename">Selected: {uploadedFile.name}</span>
+            {/* Visual Divider */}
+            <div className="input-divider">
+              <span>OR</span>
+            </div>
+
+            {/* CSV File Upload Section */}
+            <div className="csv-upload-container">
+              <label className="file-input-label">
+                <span className="eyebrow-tag">FEEDBACK CSV FILE</span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="file-input"
+                  aria-label="Upload feedback CSV file"
+                  onChange={(e) => {
+                    const file = e.target.files[0] || null
+                    setUploadedFile(file)
+                    if (file) setRawFeedback('')
+                  }}
+                />
+              </label>
+
+              {uploadedFile && (
+                <div className="file-status">
+                  <span className="selected-filename">Selected: {uploadedFile.name}</span>
+                  <button
+                    type="button"
+                    className="btn-ghost shine-effect clear-file-button"
+                    onClick={() => setUploadedFile(null)}
+                  >
+                    Clear File
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Action button to initiate feedback clustering */}
+            <div className="actions-container">
               <button
-                type="button"
-                className="clear-file-button"
-                onClick={() => setUploadedFile(null)}
+                className="btn-solid shine-effect cluster-button"
+                onClick={handleClusterFeedback}
+                disabled={isLoading}
               >
-                Clear File
+                {isLoading ? 'Clustering...' : 'Cluster Feedback'}
               </button>
             </div>
+          </div>
+
+          {/* Clusters Section */}
+          {clusters.length > 0 && (
+            <section id="clusters-section" className="clusters-section scroll-reveal">
+              <div className="clusters-header">
+                <span className="eyebrow-tag">ANALYSIS & PRIORITIZATION</span>
+                <h2 className="clusters-heading">Feedback Clusters</h2>
+              </div>
+              <div className="clusters-list">
+                {clusters.map((cluster, index) => {
+                  const prd = generatedPRDs[cluster.theme_name]
+                  const isGeneratingPRD = loadingPRDFor === cluster.theme_name
+                  const isCopied = copiedPRDFor === cluster.theme_name
+
+                  return (
+                    <div key={cluster.theme_name || index} className="cluster-card scroll-reveal">
+                      {/* Theme Name Subheading */}
+                      <h3 className="cluster-title">{cluster.theme_name}</h3>
+
+                      {/* Metadata: RICE score, Frequency, Affected Users, Friction Points */}
+                      <div className="cluster-meta-grid">
+                        <div className="stat-card rice-stat">
+                          <span className="eyebrow-tag stat-label">RICE SCORE</span>
+                          <span className="rice-hero-score">
+                            {Number(cluster.rice_score || 0).toFixed(1)}
+                          </span>
+                        </div>
+                        <div className="stat-card freq-stat">
+                          <span className="eyebrow-tag stat-label">FREQUENCY</span>
+                          <span className="stat-value freq-value">
+                            {cluster.frequency} <span className="stat-unit">mentions</span>
+                          </span>
+                        </div>
+                        <div className="stat-card affected-stat">
+                          <span className="eyebrow-tag stat-label">AFFECTED USERS</span>
+                          <span className="stat-value affected-value">
+                            👥 {cluster.affected_count || cluster.frequency || 0} <span className="stat-unit">reports</span>
+                          </span>
+                        </div>
+                        {cluster.negative_feedback_count > 0 && (
+                          <div className="stat-card friction-stat">
+                            <span className="eyebrow-tag stat-label">FRICTION / BUGS</span>
+                            <span className="stat-value friction-value">
+                              🚨 {cluster.negative_feedback_count} <span className="stat-unit">issues</span>
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* List of raw feedback items */}
+                      <div className="feedback-section">
+                        <span className="eyebrow-tag section-eyebrow">CLASSIFIED FEEDBACK</span>
+                        <ul className="feedback-list">
+                          {cluster.feedback_items?.map((item, itemIdx) => (
+                            <li key={itemIdx} className="feedback-item">
+                              <span className="feedback-text">{item.text}</span>
+                              {item.similar_past_count > 0 && (
+                                <span className="repeat-badge">
+                                  🔁 Seen {item.similar_past_count}x before
+                                </span>
+                              )}
+                              <span className="feedback-tags">
+                                <span className="tag sentiment-tag">{item.sentiment}</span>
+                                <span className="tag intent-tag">{item.intent}</span>
+                                <span className="tag urgency-tag">{item.urgency}</span>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Button to generate PRD for this cluster */}
+                      <button
+                        className="btn-solid shine-effect generate-prd-button"
+                        onClick={() => handleGeneratePRD(cluster)}
+                        disabled={isGeneratingPRD}
+                      >
+                        {isGeneratingPRD ? 'Generating...' : 'Generate PRD'}
+                      </button>
+
+                      {/* Render PRD Card when generated for this cluster */}
+                      {prd && (
+                        <div className="prd-card scroll-reveal">
+                          <h4 className="prd-title">{prd.title}</h4>
+
+                          <span className="eyebrow-tag prd-section-eyebrow">PROBLEM STATEMENT</span>
+                          <p className="prd-text">{prd.problem_statement}</p>
+
+                          <span className="eyebrow-tag prd-section-eyebrow">USER STORIES</span>
+                          <ul className="prd-list">
+                            {prd.user_stories?.map((story, i) => (
+                              <li key={i}>{story}</li>
+                            ))}
+                          </ul>
+
+                          <span className="eyebrow-tag prd-section-eyebrow">ACCEPTANCE CRITERIA</span>
+                          <ul className="prd-list">
+                            {prd.acceptance_criteria?.map((criteria, i) => (
+                              <li key={i}>{criteria}</li>
+                            ))}
+                          </ul>
+
+                          <span className="eyebrow-tag prd-section-eyebrow">KPIS</span>
+                          <ul className="prd-list">
+                            {prd.kpis?.map((kpi, i) => (
+                              <li key={i}>{kpi}</li>
+                            ))}
+                          </ul>
+
+                          <button
+                            className="btn-ghost shine-effect copy-markdown-button"
+                            onClick={() => handleCopyMarkdown(cluster, prd)}
+                          >
+                            {isCopied ? 'Copied!' : 'Copy as Markdown'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
           )}
         </div>
-      </div>
+      </main>
 
-      {/* Action button to initiate feedback clustering */}
-      <div className="actions-container">
-        <button
-          className="cluster-button"
-          onClick={handleClusterFeedback}
-          disabled={isLoading}
-        >
-          {isLoading ? 'Clustering...' : 'Cluster Feedback'}
-        </button>
-      </div>
-
-      {/* Clusters Section: Rendered only when clusters array is non-empty */}
-      {clusters.length > 0 && (
-        <div className="clusters-container">
-          <div className="clusters-header">
-            <span className="eyebrow">ANALYSIS & PRIORITIZATION</span>
-            <h2 className="clusters-heading">Feedback Clusters</h2>
-          </div>
-          <div className="clusters-list">
-            {clusters.map((cluster, index) => {
-              const prd = generatedPRDs[cluster.theme_name]
-              const isGeneratingPRD = loadingPRDFor === cluster.theme_name
-              const isCopied = copiedPRDFor === cluster.theme_name
-
-              return (
-                <div key={cluster.theme_name || index} className="cluster-card">
-                  {/* Theme Name Subheading */}
-                  <h3 className="cluster-title">{cluster.theme_name}</h3>
-
-                  {/* Metadata: RICE score, Frequency, Total Affected Users, and Friction Points */}
-                  <div className="cluster-meta-grid">
-                    <div className="stat-card rice-stat">
-                      <span className="eyebrow stat-label">RICE SCORE</span>
-                      <span className="stat-value rice-hero-score">
-                        {Number(cluster.rice_score || 0).toFixed(1)}
-                      </span>
-                    </div>
-                    <div className="stat-card freq-stat">
-                      <span className="eyebrow stat-label">FREQUENCY</span>
-                      <span className="stat-value freq-value">
-                        {cluster.frequency} <span className="stat-unit">mentions</span>
-                      </span>
-                    </div>
-                    <div className="stat-card affected-stat">
-                      <span className="eyebrow stat-label">AFFECTED USERS</span>
-                      <span className="stat-value affected-value">
-                        👥 {cluster.affected_count || cluster.frequency || 0} <span className="stat-unit">reports</span>
-                      </span>
-                    </div>
-                    {cluster.negative_feedback_count > 0 && (
-                      <div className="stat-card friction-stat">
-                        <span className="eyebrow stat-label">FRICTION / BUGS</span>
-                        <span className="stat-value friction-value">
-                          🚨 {cluster.negative_feedback_count} <span className="stat-unit">issues</span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* List of raw feedback items with sentiment, intent, and urgency */}
-                  <div className="feedback-section">
-                    <span className="eyebrow section-eyebrow">CLASSIFIED FEEDBACK</span>
-                    <ul className="feedback-list">
-                      {cluster.feedback_items?.map((item, itemIdx) => (
-                        <li key={itemIdx} className="feedback-item">
-                          <span className="feedback-text">{item.text}</span>
-                          {/* Vector Memory Badge: Displays how many semantically similar past feedback items were retrieved from ChromaDB long-term memory */}
-                          {item.similar_past_count > 0 && (
-                            <span className="repeat-badge">
-                              🔁 Seen {item.similar_past_count}x before
-                            </span>
-                          )}
-                          <span className="feedback-tags">
-                            <span className="tag sentiment-tag">{item.sentiment}</span>
-                            <span className="tag intent-tag">{item.intent}</span>
-                            <span className="tag urgency-tag">{item.urgency}</span>
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Button to generate PRD for this cluster */}
-                  <button
-                    className="generate-prd-button"
-                    onClick={() => handleGeneratePRD(cluster)}
-                    disabled={isGeneratingPRD}
-                  >
-                    {isGeneratingPRD ? 'Generating...' : 'Generate PRD'}
-                  </button>
-
-                  {/* Render PRD Card when generated for this cluster */}
-                  {prd && (
-                    <div className="prd-card">
-                      <h4 className="prd-title">{prd.title}</h4>
-
-                      <span className="eyebrow prd-section-eyebrow">PROBLEM STATEMENT</span>
-                      <p className="prd-text">{prd.problem_statement}</p>
-
-                      <span className="eyebrow prd-section-eyebrow">USER STORIES</span>
-                      <ul className="prd-list">
-                        {prd.user_stories?.map((story, i) => (
-                          <li key={i}>{story}</li>
-                        ))}
-                      </ul>
-
-                      <span className="eyebrow prd-section-eyebrow">ACCEPTANCE CRITERIA</span>
-                      <ul className="prd-list">
-                        {prd.acceptance_criteria?.map((criteria, i) => (
-                          <li key={i}>{criteria}</li>
-                        ))}
-                      </ul>
-
-                      <span className="eyebrow prd-section-eyebrow">KPIS</span>
-                      <ul className="prd-list">
-                        {prd.kpis?.map((kpi, i) => (
-                          <li key={i}>{kpi}</li>
-                        ))}
-                      </ul>
-
-                      {/* Button to copy PRD in Markdown format */}
-                      <button
-                        className="copy-markdown-button"
-                        onClick={() => handleCopyMarkdown(cluster, prd)}
-                      >
-                        {isCopied ? 'Copied!' : 'Copy as Markdown'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+      {/* Clean Dark Footer */}
+      <footer className="page-footer">
+        <div className="footer-container">
+          <p>© {new Date().getFullYear()} EchoInsight. Powered by Gemini & Semantic Vector Memory.</p>
         </div>
-      )}
+      </footer>
     </div>
   )
 }
 
 export default App
-

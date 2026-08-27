@@ -1,26 +1,11 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&display=swap');
+
 :root {
-  --bg-start: #0a0a0a;
-  --bg-mid: #1c1917;
-  --bg-end: #3a352f;
-  
-  --text-primary: #f5f3ef;
-  --text-muted: #a19b91;
-  --text-secondary: #c5c0b8;
-  --text-dark: #0a0a0a;
-
-  --card-bg: rgba(255, 255, 255, 0.035);
-  --card-bg-hover: rgba(255, 255, 255, 0.05);
-  --card-border: rgba(255, 255, 255, 0.09);
-  --card-border-focus: rgba(255, 255, 255, 0.25);
-  
-  --btn-primary-bg: #f5f3ef;
-  --btn-primary-text: #0a0a0a;
-  --btn-secondary-bg: transparent;
-  --btn-secondary-border: rgba(255, 255, 255, 0.18);
-  --btn-secondary-text: #f5f3ef;
-
-  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  
+  --bg-black: #000000;
+  --text-primary: #ffffff;
+  --text-secondary: #9a9a9a;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, serif;
   color-scheme: dark;
 }
 
@@ -30,7 +15,8 @@
 
 html {
   min-height: 100%;
-  background-color: var(--bg-start);
+  background-color: var(--bg-black);
+  scroll-behavior: smooth;
 }
 
 body {
@@ -41,25 +27,21 @@ body {
   font-size: 16px;
   line-height: 1.6;
   color: var(--text-secondary);
-  background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-mid) 45%, var(--bg-end) 100%);
-  background-attachment: fixed;
-  background-repeat: no-repeat;
-  background-size: cover;
+  background-color: var(--bg-black);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 #root {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 4rem 1.5rem 6rem;
+  width: 100%;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
 ::selection {
-  background: var(--text-muted);
-  color: var(--bg-start);
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
 }
 
