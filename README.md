@@ -4,7 +4,7 @@
 
 ---
 
-[![Live Demo](https://img.shields.io/badge/Live_Demo-EchoInsight-6366f1?style=for-the-badge&logo=vercel&logoColor=white)](https://echoinsight.onrender.com)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-EchoInsight-6366f1?style=for-the-badge&logo=vercel&logoColor=white)](https://echo-insight.vercel.app/)
 [![Backend API](https://img.shields.io/badge/API_Status-Online-00C853?style=for-the-badge&logo=render&logoColor=white)](https://echoinsight.onrender.com)
 [![Swagger Docs](https://img.shields.io/badge/API_Docs-Swagger_UI-009688?style=for-the-badge&logo=swagger&logoColor=white)](https://echoinsight.onrender.com/docs)
 [![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/SusheelSagar4/EchoInsight)
@@ -13,7 +13,7 @@
 
 ## 🔗 Live Links & Demo
 
-* 🌐 **Live Website Application**: [https://echoinsight.onrender.com](https://echoinsight.onrender.com)
+* 🌐 **Live Website Application**: [https://echo-insight.vercel.app/](https://echo-insight.vercel.app/)
 * ⚡ **Live Backend API**: [https://echoinsight.onrender.com](https://echoinsight.onrender.com)
 * 📖 **Interactive API Documentation (Swagger)**: [https://echoinsight.onrender.com/docs](https://echoinsight.onrender.com/docs)
 * 🐙 **GitHub Repository**: [https://github.com/SusheelSagar4/EchoInsight](https://github.com/SusheelSagar4/EchoInsight)
