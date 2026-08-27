@@ -380,3 +380,4 @@ This script launches backend uvicorn on port 8000 and frontend Vite dev server c
 | **2026-08-24** | `v1.1` | Antigravity AI | Added `affected_count` and `negative_feedback_count` to `FeedbackCluster` schema, updated `clustering_service.py` calculation, and rendered metric cards in React UI. |
 | **2026-08-24** | `v1.1` | Antigravity AI | Configured CORS middleware for Vercel deployment (`allow_credentials=False` for wildcard compatibility), sanitized `API_BASE_URL` trailing slashes, and added Render cold-start user error messaging. |
 | **2026-08-24** | `v1.1` | Antigravity AI | Updated CORS `allow_credentials=True`, set `RAW_API_URL` default fallback to `https://echoinsight.onrender.com`, and refined cold-start alert helper. |
+| **2026-08-27** | `v1.1` | Antigravity AI | Updated `README.md` with full feature showcase, live demo links (Website & Backend API), tech stack badges, system architecture diagrams, and quick-start instructions. |
