@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
 // Base URL for backend API requests, loaded from environment variables (sanitized to remove trailing slashes) or defaulting to live Render backend
@@ -27,6 +27,154 @@ function App() {
 
   // State 7: Tracks which cluster theme_name currently shows "Copied!" feedback (null if none)
   const [copiedPRDFor, setCopiedPRDFor] = useState(null)
+
+  // Refs for hero section and interactive particle canvas
+  const heroRef = useRef(null)
+  const canvasRef = useRef(null)
+
+  // Interactive mouse particle system in the hero section
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const hero = heroRef.current
+    if (!canvas || !hero) return
+
+    // Respect prefers-reduced-motion
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (prefersReducedMotion) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    let animationFrameId = null
+    let isHeroVisible = true
+
+    const updateCanvasSize = () => {
+      canvas.width = hero.offsetWidth
+      canvas.height = hero.offsetHeight
+    }
+    updateCanvasSize()
+
+    // Generate 110 lightweight dust particles
+    const particleCount = 110
+    const particles = []
+
+    for (let i = 0; i < particleCount; i++) {
+      const baseVx = (Math.random() - 0.5) * 0.4
+      const baseVy = (Math.random() - 0.5) * 0.4
+      particles.push({
+        x: Math.random() * (canvas.width || 1),
+        y: Math.random() * (canvas.height || 1),
+        baseVx,
+        baseVy,
+        vx: baseVx,
+        vy: baseVy,
+        radius: Math.random() * 1.8 + 1, // 1px to 2.8px
+        opacity: Math.random() * 0.4 + 0.2, // 0.2 to 0.6 opacity
+      })
+    }
+
+    const mouse = {
+      x: -9999,
+      y: -9999,
+      isOver: false,
+    }
+
+    const handleMouseMove = (e) => {
+      const rect = hero.getBoundingClientRect()
+      mouse.x = e.clientX - rect.left
+      mouse.y = e.clientY - rect.top
+      mouse.isOver = true
+    }
+
+    const handleMouseLeave = () => {
+      mouse.isOver = false
+      mouse.x = -9999
+      mouse.y = -9999
+    }
+
+    const handleResize = () => {
+      updateCanvasSize()
+    }
+
+    hero.addEventListener('mousemove', handleMouseMove)
+    hero.addEventListener('mouseleave', handleMouseLeave)
+    window.addEventListener('resize', handleResize)
+
+    // Pause animation when hero is out of view
+    const heroObserver = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries
+        isHeroVisible = entry.isIntersecting
+        if (isHeroVisible && !animationFrameId) {
+          render()
+        }
+      },
+      { threshold: 0 }
+    )
+
+    heroObserver.observe(hero)
+
+    const render = () => {
+      if (!isHeroVisible) {
+        animationFrameId = null
+        return
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i]
+
+        // Soft mouse repulsion effect within 120px radius
+        if (mouse.isOver) {
+          const dx = p.x - mouse.x
+          const dy = p.y - mouse.y
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          const repulsionRadius = 120
+
+          if (dist < repulsionRadius && dist > 0) {
+            const force = (1 - dist / repulsionRadius) * 1.6
+            const angle = Math.atan2(dy, dx)
+            p.vx += Math.cos(angle) * force * 0.2
+            p.vy += Math.sin(angle) * force * 0.2
+          }
+        }
+
+        // Smoothly ease velocity back toward base velocity
+        p.vx += (p.baseVx - p.vx) * 0.05
+        p.vy += (p.baseVy - p.vy) * 0.05
+
+        p.x += p.vx
+        p.y += p.vy
+
+        // Wrap around canvas boundaries
+        if (p.x < 0) p.x = canvas.width
+        if (p.x > canvas.width) p.x = 0
+        if (p.y < 0) p.y = canvas.height
+        if (p.y > canvas.height) p.y = 0
+
+        // Draw particle
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
+        ctx.fillStyle = `rgba(255, 255, 255, ${p.opacity})`
+        ctx.fill()
+      }
+
+      animationFrameId = requestAnimationFrame(render)
+    }
+
+    render()
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId)
+      }
+      hero.removeEventListener('mousemove', handleMouseMove)
+      hero.removeEventListener('mouseleave', handleMouseLeave)
+      window.removeEventListener('resize', handleResize)
+      heroObserver.disconnect()
+    }
+  }, [])
 
   // Scroll reveal observer for dynamic cluster and PRD cards
   useEffect(() => {
@@ -232,7 +380,10 @@ ${kpis}`
       </header>
 
       {/* Hero Section (Bottom-Anchored Layout) */}
-      <section className="hero-section">
+      <section className="hero-section" ref={heroRef}>
+        {/* Interactive Mouse Particle Canvas */}
+        <canvas ref={canvasRef} className="hero-particles-canvas" aria-hidden="true" />
+
         <div className="hero-container">
           {/* Small Pill Badge */}
           <div className="hero-badge animate-fade-up" style={{ '--delay': '0.4s' }}>
