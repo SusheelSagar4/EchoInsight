@@ -54,13 +54,13 @@ function App() {
     }
     updateCanvasSize()
 
-    // Generate 110 lightweight dust particles
-    const particleCount = 110
+    // Generate 280 high-density particles with increased velocity
+    const particleCount = 280
     const particles = []
 
     for (let i = 0; i < particleCount; i++) {
-      const baseVx = (Math.random() - 0.5) * 0.4
-      const baseVy = (Math.random() - 0.5) * 0.4
+      const baseVx = (Math.random() - 0.5) * 1.2
+      const baseVy = (Math.random() - 0.5) * 1.2
       particles.push({
         x: Math.random() * (canvas.width || 1),
         y: Math.random() * (canvas.height || 1),
@@ -68,8 +68,8 @@ function App() {
         baseVy,
         vx: baseVx,
         vy: baseVy,
-        radius: Math.random() * 1.8 + 1, // 1px to 2.8px
-        opacity: Math.random() * 0.4 + 0.2, // 0.2 to 0.6 opacity
+        radius: Math.random() * 2.2 + 1, // 1px to 3.2px
+        opacity: Math.random() * 0.5 + 0.25, // 0.25 to 0.75 opacity
       })
     }
 
@@ -125,24 +125,33 @@ function App() {
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i]
 
-        // Soft mouse repulsion effect within 120px radius
+        // Immediate high-acceleration mouse reaction within 180px radius
         if (mouse.isOver) {
           const dx = p.x - mouse.x
           const dy = p.y - mouse.y
           const dist = Math.sqrt(dx * dx + dy * dy)
-          const repulsionRadius = 120
+          const repulsionRadius = 180
 
           if (dist < repulsionRadius && dist > 0) {
-            const force = (1 - dist / repulsionRadius) * 1.6
+            const forceFactor = 1 - dist / repulsionRadius
+            const force = forceFactor * forceFactor * 9.0
             const angle = Math.atan2(dy, dx)
-            p.vx += Math.cos(angle) * force * 0.2
-            p.vy += Math.sin(angle) * force * 0.2
+            p.vx += Math.cos(angle) * force * 0.35
+            p.vy += Math.sin(angle) * force * 0.35
           }
         }
 
-        // Smoothly ease velocity back toward base velocity
-        p.vx += (p.baseVx - p.vx) * 0.05
-        p.vy += (p.baseVy - p.vy) * 0.05
+        // Cap maximum velocity for smooth energetic movement
+        const currentSpeed = Math.sqrt(p.vx * p.vx + p.vy * p.vy)
+        const maxSpeed = 8.5
+        if (currentSpeed > maxSpeed) {
+          p.vx = (p.vx / currentSpeed) * maxSpeed
+          p.vy = (p.vy / currentSpeed) * maxSpeed
+        }
+
+        // Smoothly decay velocity back toward lively base drift
+        p.vx += (p.baseVx - p.vx) * 0.06
+        p.vy += (p.baseVy - p.vy) * 0.06
 
         p.x += p.vx
         p.y += p.vy
