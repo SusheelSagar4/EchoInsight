@@ -247,6 +247,18 @@
   color: #ffffff;
 }
 
+.workspace-pill-badge {
+  font-size: 0.675rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  margin-left: 0.5rem;
+}
+
 .nav-center {
   display: flex;
   align-items: center;
@@ -283,7 +295,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   5. Hero Section (Bottom-Anchored Layout) & Particle Canvas
+   5. Hero Section & Particle Canvas
    -------------------------------------------------------------------------- */
 .hero-section {
   position: relative;
@@ -423,7 +435,7 @@
 .tool-container {
   display: flex;
   flex-direction: column;
-  gap: 3rem;
+  gap: 2.5rem;
 }
 
 .tool-header {
@@ -449,6 +461,7 @@
 
 /* Input Card */
 .input-card {
+  position: relative;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0%, rgba(255, 255, 255, 0.01) 100%);
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 16px;
@@ -464,6 +477,134 @@
 
 .input-card:hover {
   border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Animated Demo Pointer Cursor */
+.demo-animated-cursor {
+  position: absolute;
+  top: 35%;
+  left: 60%;
+  z-index: 30;
+  pointer-events: none;
+  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  filter: drop-shadow(0 4px 14px rgba(255, 255, 255, 0.6));
+}
+
+.demo-animated-cursor.on-button {
+  top: calc(100% - 3.8rem);
+  left: 2.5rem;
+}
+
+.demo-animated-cursor.clicking {
+  transform: scale(0.8);
+}
+
+.cursor-click-ripple {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  animation: rippleExpand 0.4s ease-out forwards;
+}
+
+@keyframes rippleExpand {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.active-click-pulse {
+  transform: scale(0.96) !important;
+  background: linear-gradient(180deg, #ffffff 0%, #ffffff 100%) !important;
+  box-shadow: 0 0 28px rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Demo Read-Only Banner & Disabled Styles */
+.demo-card-disabled {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.demo-read-only-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 0.45rem 1.15rem;
+  font-size: 0.775rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #9a9a9a;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  align-self: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.demo-disabled-input {
+  opacity: 0.75 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+.demo-disabled-button {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  box-shadow: none !important;
+}
+
+/* Launcher CTA Banner */
+.demo-launcher-banner {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  padding: 2.5rem;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  flex-wrap: wrap;
+  margin-top: 2rem;
+}
+
+.launcher-text-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 600px;
+}
+
+.launcher-headline {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.launcher-subtext {
+  font-size: 0.95rem;
+  color: #9a9a9a;
+  margin: 0;
+}
+
+.launcher-cta-btn {
+  padding: 0.9rem 2.25rem;
+  font-size: 0.95rem;
+  white-space: nowrap;
 }
 
 .feedback-textarea {
@@ -868,6 +1009,10 @@
     padding: 1.5rem;
   }
   .feedback-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .demo-launcher-banner {
     flex-direction: column;
     align-items: flex-start;
   }
