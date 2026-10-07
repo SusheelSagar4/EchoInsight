@@ -197,7 +197,7 @@ EchoInsight includes an autonomous AI Agent framework built in Python for execut
    - Abstract `Planner` interface (`decide_next_action(state)`).
    - Decision schema: `{"action": "tool" | "finish", "tool": str, "args": dict, "reason": str, "final_answer": str}`.
    - `ScriptedPlanner`: Replays pre-scripted decision lists for deterministic, zero-API unit testing. Resolves `$LAST_CREATED_ID` dynamically.
-   - `GeminiPlanner`: Constructs concise prompts with `TOOL_REGISTRY` metadata and execution history, invoking `llm_client.generate_text(prompt, json_mode=True)`. Handles three goal types (Full PRD + Backlog, Targeted Topic Backlog, Read-Only Query).
+   - `GeminiPlanner`: Constructs concise prompts with `TOOL_REGISTRY` metadata and execution history, invoking `llm_client.generate_text(prompt, json_mode=True)`. Handles three goal types (Full PRD + Backlog, Targeted Topic Backlog, Read-Only Query). *Note: The quota-halt path was verified live (`run_abfb3e2b02`), but GeminiPlanner decision quality has NOT yet been verified live because of quota exhaustion.*
 
 ---
 
@@ -235,7 +235,7 @@ The agent operates in an iterative cyclic loop (`backend/app/agent/loop.py`):
          ┌─────────────────────────────────────────────────────────┐
          │              5. RECORD & PERSIST                        │
          │  Append trace event & save run to data/runs/<id>.json   │
-         └─────────────────────────────────────────────────────────┘
+         └──────────────────────────┬──────────────────────────────┘
 ```
 
 ---
@@ -268,10 +268,10 @@ Write tools (`requires_approval=True`, such as `create_backlog_item`) are gated 
 
 ### 🧪 Testing
 
-Testing is strictly divided into **Offline Stand-In Tests** and **Live Gemini LLM Tests**:
+Testing is strictly divided into **Stand-in Tests (Loop Mechanics)** and **Live Runs**:
 
-#### 1. Offline Stand-In Tests (Zero API Calls)
-These tests run deterministically without internet access or Gemini API quota usage:
+#### 1. Stand-In Tests (Zero API Calls)
+These tests run deterministically using `ScriptedPlanner` and mocked tool envelopes without internet access or Gemini API quota usage:
 - `python backend/test_tools.py`: Tests tool envelope schema, error classification, and duration parsing.
 - `python backend/test_agent_loop.py`: Tests 7 core loop mechanics scenarios using `ScriptedPlanner`.
 - `python backend/test_agent_api.py`: Tests REST API pause/resume, approval rejection, and timeout using `TestClient` and `ScriptedPlanner`.
@@ -279,9 +279,9 @@ These tests run deterministically without internet access or Gemini API quota us
 - `python backend/test_planner_loop_hardening.py`: Stand-in tests for markdown fenced JSON parsing, trailing prose extraction, 1-attempt repair success, repair failure, repeated-call loop detection (`stuck_loop`), and LLM budget exhaustion (`budget_exhausted`).
 - `python backend/eval_agent.py --scripted`: Runs full stand-in evaluation across all sample goals and saves results to `backend/data/eval_results.json`.
 
-#### 2. Live Gemini LLM Tests (Manual Executions)
+#### 2. Live Runs (Verified Status)
 - `python backend/preflight.py`: Runs 5 system diagnostic checks (API Key, live text generation with cache off, live JSON mode generation, embedding vector generation, and ChromaDB access) with automatic error classification and immediate quota exhaustion halting.
-- `python -m app.agent.cli "your goal here"`: Runs live Gemini reasoning from the terminal.
+- `python -m app.agent.cli --live "your goal here"`: Runs live Gemini reasoning from the terminal. *(Verified: the quota-halt path was verified live in run `run_abfb3e2b02`; GeminiPlanner decision quality has NOT yet been verified live because of quota exhaustion).*
 - `python backend/eval_agent.py --live`: Runs full evaluation against live Google Gemini model.
 
 ---
@@ -289,12 +289,54 @@ These tests run deterministically without internet access or Gemini API quota us
 ### ⚠️ Known Limitations & Development Caching
 
 - **Development Caching Note**: Local dev caching (`LLM_CACHE=1` storing prompt hashes in `backend/data/llm_cache/`) is intended for local offline development only to preserve API quota during code edits. Live production web app deployments and CLI runs perform live Gemini calls.
-- **Free-Tier API Quota Limits & Verified Quota-Halt Behavior**:
-  Google Gemini 3.6 Flash free-tier limits (15 RPM / 1500 RPD) trigger rate-limit retries or immediate `halted_quota` halts when daily limits are reached.
+- **Free-Tier Quota & Live Verification Status**:
+  Free-tier quotas vary by model and project and change over time. Check your own Google AI Studio usage page. Set `GEMINI_MODEL` to a model your key can access, and run `python preflight.py` to verify it before a live run.
+
+  *Verified Live Behavior*:
+  (a) The `halted_quota` path was verified live (`run_abfb3e2b02`), confirming immediate classification on Step 1 when HTTP 429 is encountered.
+  (b) `GeminiPlanner` decision quality has NOT yet been verified live because of quota exhaustion.
 
   *Verified Live Quota-Halt Trace Output (`run_abfb3e2b02`)*:
   ```text
   [2026-10-07 18:08:23] 🎯 [GOAL RECEIVED] Goal: "Find the most important recurring issue from the feedback, create a PRD for it, and add it to the backlog."
+  [2026-10-07 18:08:23] 🧠 [Step 1] [DECISION] Action: 'api_error' | Tool: '' | Reason: "LLM API Call Exception: 429 You exceeded your current quota..."
+  [2026-10-07 18:08:23] 🛑 [HALTED] Run halted. Reason: Agent halted due to LLM quota exhaustion: 429 You exceeded your current quota...
+  ======================================================================
+   🏁 RUN EXECUTION COMPLETE
+      - Run ID: run_abfb3e2b02
+      - Final Status: halted_quota
+      - Total Steps: 1 (0 repair calls wasted)
+      - Final Answer: Agent halted due to LLM quota exhaustion...
+  ======================================================================
+  ```
+- **Vector Memory Timestamp Metadata**: `get_feedback_trend` relies on `created_at` UTC ISO timestamp metadata in ChromaDB. Legacy items created before timestamp support return an honest `"insufficient_data"` envelope rather than invented numbers.
+
+---
+
+### Available Tools:
+- `get_customer_feedback()`: Reads customer feedback lines from CSV.
+- `search_memory(query, top_k)`: Queries ChromaDB vector memory for semantic matches.
+- `cluster_feedback_tool(feedback_lines)`: Calls Gemini AI to group lines into RICE-prioritized clusters.
+- `rank_clusters(clusters)`: Sorts cluster dicts by RICE score descending.
+- `generate_prd_tool(cluster)`: Generates a PRD object from a cluster dict.
+- `create_backlog_item(title, description, priority)`: Appends an engineering ticket to `backlog.json` (requires approval). Includes `SIMULATE_FAILURES` flag for failure recovery testing.
+- `verify_backlog_item(item_id)`: Confirms a ticket exists in `backlog.json`.
+- `get_feedback_trend(theme_query, top_k)`: Analyzes feedback frequency over time for a theme using ChromaDB vector memory timestamps (recent 7 days vs earlier). Reports honest `insufficient_data` when timestamps are missing.
+
+---
+
+## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - Documentation Audit: Unverified Quota & Live Planner Status Clarifications
+- **What Changed**:
+  - Removed unverified quota and model claims. Added standard advice: *"Free-tier quotas vary by model and project and change over time. Check your own Google AI Studio usage page. Set GEMINI_MODEL to a model your key can access, and run python preflight.py to verify it before a live run."*
+  - Clarified live status across README: (a) the quota-halt path was verified live (`run_abfb3e2b02`), and (b) `GeminiPlanner` decision quality has NOT yet been verified live because of API quota exhaustion.
+  - Divided Testing section into **Stand-in Tests (Loop Mechanics)** and **Live Runs**.
+- **Files Touched**:
+  - `README.md`
+- **Why**: Ensures documentation strictly reflects verified live behavior without claiming unverified decision quality or hardcoded quota limits.
+
+### [2026-10-07] - Verified Live Quota-Halt Trace & CLI Live Mode Supportacklog."
   [2026-10-07 18:08:23] 🧠 [Step 1] [DECISION] Action: 'api_error' | Tool: '' | Reason: "LLM API Call Exception: 429 You exceeded your current quota..."
   [2026-10-07 18:08:23] 🛑 [HALTED] Run halted. Reason: Agent halted due to LLM quota exhaustion: 429 You exceeded your current quota...
   ======================================================================
