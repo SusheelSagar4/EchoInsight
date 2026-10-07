@@ -216,10 +216,33 @@ EchoInsight includes an autonomous AI Agent framework built in Python for execut
 - `generate_prd_tool(cluster)`: Generates a PRD object from a cluster dict.
 - `create_backlog_item(title, description, priority)`: Appends an engineering ticket to `backlog.json` (requires approval). Includes `SIMULATE_FAILURES` flag for failure recovery testing.
 - `verify_backlog_item(item_id)`: Confirms a ticket exists in `backlog.json`.
+- `get_feedback_trend(theme_query, top_k)`: Analyzes feedback frequency over time for a theme using ChromaDB vector memory timestamps (recent 7 days vs earlier). Reports honest `insufficient_data` when timestamps are missing.
 
 ---
 
 ## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - Multi-Goal Support, Feedback Trend Analysis & Graceful Failure Handling
+- **What Changed**:
+  - Added read-only tool `get_feedback_trend(theme_query, top_k)` in `backend/app/agent/tools.py` registered in `TOOL_REGISTRY` with `requires_approval=False`.
+  - Updated `store_feedback_item()` in `backend/app/services/vector_store_service.py` to record `created_at` UTC ISO timestamp metadata in ChromaDB.
+  - Implemented timestamp inspection in `get_feedback_trend()` comparing recent (last 7 days) vs earlier feedback. Returns an honest `"insufficient_data"` envelope if timestamp metadata is missing, without inventing numbers.
+  - Enhanced `GeminiPlanner` system prompt in `backend/app/agent/planner.py` to categorize goals into 3 distinct types (Full PRD + Backlog, Targeted Topic Backlog, Read-Only Trend Query) and explicitly instructed the planner to stop immediately with action `"finish"` for query goals without invoking write/backlog tools.
+  - Added `backend/data/sample_goals.json` containing the 3 supported goal types plus 1 deliberately impossible non-existent tool goal.
+  - Added scripted decision files under `backend/data/scripted/` (`goal_1_prd_backlog.json`, `goal_2_topic_backlog.json`, `goal_3_read_only_trend.json`, `goal_4_impossible.json`) for offline demos and testing.
+  - Added `backend/test_goals.py` verifying all 4 goal scenarios and outputting 100% PASS test summary.
+- **Files Touched**:
+  - `backend/app/agent/tools.py`
+  - `backend/app/agent/planner.py`
+  - `backend/app/services/vector_store_service.py`
+  - `backend/data/sample_goals.json`
+  - `backend/data/scripted/goal_1_prd_backlog.json`
+  - `backend/data/scripted/goal_2_topic_backlog.json`
+  - `backend/data/scripted/goal_3_read_only_trend.json`
+  - `backend/data/scripted/goal_4_impossible.json`
+  - `backend/test_goals.py`
+  - `README.md`
+- **Why**: Expands agent capabilities to support diverse goal types (full pipelines, targeted ticketing, read-only analytics), ensures analytical goals never perform unauthorized writes or request unnecessary approvals, and guarantees graceful halting when impossible goals or invalid tools are requested.
 
 ### [2026-10-07] - CLI Runner, REST API Router & Human Approval Pause/Resume Engine
 - **What Changed**:

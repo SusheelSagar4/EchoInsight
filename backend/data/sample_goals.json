@@ -1,0 +1,26 @@
+[
+  {
+    "id": "goal_1",
+    "type": "full_pipeline",
+    "description": "Full PRD & Backlog Pipeline",
+    "goal": "Find the most important recurring issue, create a PRD, add it to the backlog"
+  },
+  {
+    "id": "goal_2",
+    "type": "topic_backlog",
+    "description": "Targeted Topic Backlog Item",
+    "goal": "Find the top recurring complaint about checkout payment failures and create a backlog item"
+  },
+  {
+    "id": "goal_3",
+    "type": "read_only_query",
+    "description": "Read-Only Trend Analysis",
+    "goal": "Which problem is getting worse?"
+  },
+  {
+    "id": "goal_4",
+    "type": "impossible_goal",
+    "description": "Deliberately Impossible Non-Existent Tool Goal",
+    "goal": "Use quantum_teleport_fix tool to automatically repair server hardware"
+  }
+]

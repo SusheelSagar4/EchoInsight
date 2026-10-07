@@ -25,7 +25,7 @@ import json
 import math
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -501,6 +501,117 @@ def verify_backlog_item(item_id: str) -> Dict[str, Any]:
 
 
 # ==============================================================================
+# Tool 8: Get Feedback Trend
+# ==============================================================================
+def get_feedback_trend(theme_query: str, top_k: int = 20) -> Dict[str, Any]:
+    """
+    Analyzes customer feedback frequency over time for a specific theme/query
+    using stored ChromaDB vector memory timestamps.
+
+    Compares matching items created in the last 7 days vs earlier. If timestamps
+    are missing or insufficient, returns an honest 'insufficient_data' result rather
+    than inventing numbers.
+
+    Args:
+        theme_query (str): The search query or theme topic.
+        top_k (int): Maximum number of items to inspect (default: 20).
+
+    Returns:
+        Dict envelope: {"ok": True, "data": dict} or failure envelope
+    """
+    try:
+        if not theme_query or not isinstance(theme_query, str) or not theme_query.strip():
+            return make_failure_envelope("theme_query string is required.")
+
+        # Step 1: Generate query embedding
+        query_embedding = get_embedding(theme_query.strip())
+
+        # Step 2: Query ChromaDB vector memory
+        matches = find_similar_feedback(embedding=query_embedding, top_k=top_k)
+
+        if not matches:
+            return {
+                "ok": True,
+                "data": {
+                    "theme_query": theme_query,
+                    "status": "no_matches_found",
+                    "trend": "unknown",
+                    "total_matches": 0,
+                    "recent_7_days": 0,
+                    "earlier": 0,
+                    "message": f"No feedback items matching '{theme_query}' found in vector memory."
+                }
+            }
+
+        now_utc = datetime.now(timezone.utc)
+        recent_cutoff = now_utc - timedelta(days=7)
+
+        recent_count = 0
+        earlier_count = 0
+        missing_timestamp_count = 0
+
+        for item in matches:
+            meta = item.get("metadata", {}) or {}
+            created_at_str = meta.get("created_at")
+
+            if not created_at_str:
+                missing_timestamp_count += 1
+                continue
+
+            try:
+                dt = datetime.fromisoformat(str(created_at_str).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+
+                if dt >= recent_cutoff:
+                    recent_count += 1
+                else:
+                    earlier_count += 1
+            except Exception:
+                missing_timestamp_count += 1
+
+        valid_count = recent_count + earlier_count
+        if valid_count == 0:
+            return {
+                "ok": True,
+                "data": {
+                    "theme_query": theme_query,
+                    "status": "insufficient_data",
+                    "trend": "insufficient_data",
+                    "total_matches": len(matches),
+                    "recent_7_days": 0,
+                    "earlier": 0,
+                    "missing_timestamps": missing_timestamp_count,
+                    "message": f"Insufficient data: {len(matches)} matching items found for '{theme_query}', but none contain valid timestamp metadata."
+                }
+            }
+
+        if recent_count > earlier_count:
+            trend_direction = "worsening"
+        elif recent_count < earlier_count:
+            trend_direction = "improving"
+        else:
+            trend_direction = "stable"
+
+        return {
+            "ok": True,
+            "data": {
+                "theme_query": theme_query,
+                "status": "analyzed",
+                "trend": trend_direction,
+                "total_matches": len(matches),
+                "recent_7_days": recent_count,
+                "earlier": earlier_count,
+                "missing_timestamps": missing_timestamp_count,
+                "summary": f"Theme '{theme_query}': {recent_count} recent (last 7 days) vs {earlier_count} earlier items. Trend is {trend_direction}."
+            }
+        }
+
+    except Exception as e:
+        return make_failure_envelope(f"Failed to calculate feedback trend: {str(e)}")
+
+
+# ==============================================================================
 # Tool Registry Mapping
 # ==============================================================================
 # Maps every tool function name to its callable, documentation, parameters,
@@ -560,6 +671,15 @@ TOOL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": "Verifies that an engineering ticket with the given ID exists in local backlog storage.",
         "args": {
             "item_id": "str: Unique ticket ID (e.g. ENG-101)"
+        },
+        "requires_approval": False
+    },
+    "get_feedback_trend": {
+        "function": get_feedback_trend,
+        "description": "Analyzes feedback frequency over time for a theme using ChromaDB vector memory timestamps. Reports recent (last 7 days) vs earlier feedback counts.",
+        "args": {
+            "theme_query": "str: Search query or theme to analyze trends for",
+            "top_k": "int: Optional max items to inspect (default 20)"
         },
         "requires_approval": False
     }

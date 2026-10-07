@@ -103,14 +103,22 @@ Execution History:
 {history_str}
 
 Instructions:
-1. Select ONE tool to call OR choose action "finish" if goal is satisfied.
-2. Return ONLY raw valid JSON matching this exact schema:
+1. Identify the goal type and determine the appropriate tool sequence:
+   a) Full PRD & Backlog Pipeline ("Find most important recurring issue, create a PRD, add to backlog"):
+      get_customer_feedback -> cluster_feedback_tool -> rank_clusters -> generate_prd_tool -> create_backlog_item -> verify_backlog_item -> finish.
+   b) Targeted Topic Backlog Item ("Find top recurring complaint about <topic> and create backlog item"):
+      search_memory/get_customer_feedback -> create_backlog_item -> verify_backlog_item -> finish.
+   c) Read-only Analytical Query ("Which problem is getting worse?", trend queries, evidence questions):
+      Use read-only tools like get_feedback_trend, get_customer_feedback, or search_memory to gather evidence. Do NOT call write tools like create_backlog_item. Once evidence is gathered, stop immediately by selecting action "finish" and providing a comprehensive evidence-backed answer in final_answer.
+2. CRITICAL RULE: If the user's goal does NOT explicitly request writing a backlog item or creating a ticket, do NOT call create_backlog_item or any write tools. Gather data and select action "finish".
+3. Select ONE tool to call OR choose action "finish" if the goal is satisfied.
+4. Return ONLY raw valid JSON matching this exact schema:
 {{
   "action": "tool" or "finish",
   "tool": "tool_name_here",
   "args": {{"arg_name": "arg_value"}},
   "reason": "Short explanation of why this step was chosen",
-  "final_answer": "Summary response if action is finish, else empty string"
+  "final_answer": "Detailed summary response with evidence if action is finish, else empty string"
 }}
 """
 

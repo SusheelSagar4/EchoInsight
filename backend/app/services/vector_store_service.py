@@ -23,8 +23,10 @@ of documents. Each item stored inside a collection contains four key parts:
 ==============================================================================
 """
 
+from datetime import datetime, timezone
 import os
 from pathlib import Path
+from typing import Optional
 import chromadb
 
 # ==============================================================================
@@ -52,14 +54,15 @@ def store_feedback_item(
     theme_name: str,
     sentiment: str,
     intent: str,
-    urgency: str
+    urgency: str,
+    created_at: Optional[str] = None
 ) -> None:
     """
     Stores a single feedback item into the ChromaDB 'feedback_memory' collection.
 
     What this function does:
-    1. Takes the item's unique ID, text, embedding vector, and categorizations.
-    2. Packages metadata into a dictionary.
+    1. Takes the item's unique ID, text, embedding vector, categorizations, and timestamp.
+    2. Packages metadata into a dictionary (including created_at ISO timestamp).
     3. Saves the document, vector, and metadata into ChromaDB persistent storage.
 
     Args:
@@ -70,12 +73,15 @@ def store_feedback_item(
         sentiment (str): Sentiment tag ("Positive", "Negative", or "Neutral").
         intent (str): Feedback type ("Bug", "Feature Request", or "UX Friction").
         urgency (str): Urgency rating ("Low", "Medium", or "High").
+        created_at (Optional[str]): UTC ISO timestamp string (defaults to current time).
 
     Raises:
         ValueError: If input validation fails or ChromaDB insertion encounters an error.
     """
     if not item_id or not text or not embedding:
         raise ValueError("item_id, text, and embedding are required to store feedback.")
+
+    timestamp_val = created_at or datetime.now(timezone.utc).isoformat()
 
     try:
         # Save to ChromaDB collection
@@ -87,7 +93,8 @@ def store_feedback_item(
                 "theme_name": theme_name,
                 "sentiment": sentiment,
                 "intent": intent,
-                "urgency": urgency
+                "urgency": urgency,
+                "created_at": timestamp_val
             }]
         )
     except Exception as e:

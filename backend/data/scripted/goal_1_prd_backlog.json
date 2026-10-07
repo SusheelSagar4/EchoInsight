@@ -1,0 +1,77 @@
+[
+  {
+    "action": "tool",
+    "tool": "get_customer_feedback",
+    "args": {},
+    "reason": "Fetch raw customer feedback lines to identify recurring complaints"
+  },
+  {
+    "action": "tool",
+    "tool": "cluster_feedback_tool",
+    "args": {
+      "feedback_lines": [
+        "Payment failed on checkout page repeatedly.",
+        "Unable to complete payment via credit card.",
+        "Slow loading times when checking out."
+      ]
+    },
+    "reason": "Group feedback items into prioritized RICE clusters"
+  },
+  {
+    "action": "tool",
+    "tool": "rank_clusters",
+    "args": {
+      "clusters": [
+        {
+          "theme_name": "Checkout Payment Failures",
+          "rice_score": 450.0,
+          "reach": 150,
+          "impact": 3.0,
+          "confidence": 1.0,
+          "effort": 1.0
+        }
+      ]
+    },
+    "reason": "Rank clusters by RICE score descending"
+  },
+  {
+    "action": "tool",
+    "tool": "generate_prd_tool",
+    "args": {
+      "cluster": {
+        "theme_name": "Checkout Payment Failures",
+        "rice_score": 450.0,
+        "reach": 150,
+        "impact": 3.0,
+        "confidence": 1.0,
+        "effort": 1.0
+      }
+    },
+    "reason": "Generate comprehensive PRD for top RICE cluster"
+  },
+  {
+    "action": "tool",
+    "tool": "create_backlog_item",
+    "args": {
+      "title": "Resolve Checkout Payment Gateway Timeouts",
+      "description": "Fix recurring 503 errors and timeout issues on checkout payment gateway",
+      "priority": "High"
+    },
+    "reason": "Create engineering backlog item for the top PRD cluster"
+  },
+  {
+    "action": "tool",
+    "tool": "verify_backlog_item",
+    "args": {
+      "item_id": "$LAST_CREATED_ID"
+    },
+    "reason": "Verify backlog ticket creation in backlog storage"
+  },
+  {
+    "action": "finish",
+    "tool": "",
+    "args": {},
+    "reason": "Full PRD and backlog pipeline completed successfully",
+    "final_answer": "Identified top issue 'Checkout Payment Failures', generated PRD, and created backlog ticket."
+  }
+]

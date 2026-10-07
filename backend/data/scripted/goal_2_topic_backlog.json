@@ -1,0 +1,36 @@
+[
+  {
+    "action": "tool",
+    "tool": "search_memory",
+    "args": {
+      "query": "checkout payment failures",
+      "top_k": 5
+    },
+    "reason": "Search vector memory for complaints about checkout payment failures"
+  },
+  {
+    "action": "tool",
+    "tool": "create_backlog_item",
+    "args": {
+      "title": "Fix Checkout Payment Gateway Failures",
+      "description": "Address top recurring complaint regarding checkout payment gateway errors",
+      "priority": "High"
+    },
+    "reason": "Create backlog ticket for top recurring payment failure complaint"
+  },
+  {
+    "action": "tool",
+    "tool": "verify_backlog_item",
+    "args": {
+      "item_id": "$LAST_CREATED_ID"
+    },
+    "reason": "Verify created backlog ticket in storage"
+  },
+  {
+    "action": "finish",
+    "tool": "",
+    "args": {},
+    "reason": "Targeted backlog item created and verified",
+    "final_answer": "Found top complaint about checkout payment failures and created verified backlog ticket."
+  }
+]

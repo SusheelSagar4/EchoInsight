@@ -1,0 +1,18 @@
+[
+  {
+    "action": "tool",
+    "tool": "get_feedback_trend",
+    "args": {
+      "theme_query": "checkout payment failure",
+      "top_k": 20
+    },
+    "reason": "Analyze feedback trend over time using stored vector memory timestamps"
+  },
+  {
+    "action": "finish",
+    "tool": "",
+    "args": {},
+    "reason": "Trend analysis complete with evidence",
+    "final_answer": "Based on trend analysis of customer feedback, checkout payment failures represent the top worsening issue."
+  }
+]
