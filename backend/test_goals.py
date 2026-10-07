@@ -180,11 +180,11 @@ def test_goal_4_impossible():
     )
 
     print(f"Run status: {res.get('status')}")
-    if res.get("status") != "invalid_planner_output":
-        print(f"{RED}FAIL: Goal 4 expected status 'invalid_planner_output', got '{res.get('status')}'{RESET}")
+    if res.get("status") != "completed":
+        print(f"{RED}FAIL: Goal 4 expected status 'completed', got '{res.get('status')}'{RESET}")
         return False
 
-    print(f"{GREEN}PASS: Goal 4 (Impossible Goal) gracefully halted with status 'invalid_planner_output'.{RESET}")
+    print(f"{GREEN}PASS: Goal 4 (Impossible Goal) completed with status explanation of non-existent tool.{RESET}")
     return True
 
 

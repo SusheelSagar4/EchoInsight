@@ -4,14 +4,14 @@ backend/app/agent/planner.py
 Planner layer for the EchoInsight autonomous agent.
 Provides a swappable Planner interface, a ScriptedPlanner for deterministic testing,
 and a GeminiPlanner for LLM-driven decision making with JSON robustness, repair attempts,
-and prompt hygiene.
+prompt hygiene, and LLM API error classification.
 """
 
 from abc import ABC, abstractmethod
 import json
 import re
 from typing import Any, Dict, List, Optional
-from .tools import TOOL_REGISTRY
+from .tools import classify_error, TOOL_REGISTRY
 from ..services.llm_client import generate_text
 
 
@@ -106,7 +106,7 @@ class Planner(ABC):
         """
         Given the current state dictionary, returns a decision dictionary matching:
         {
-            "action": "tool" | "finish" | "invalid",
+            "action": "tool" | "finish" | "invalid" | "api_error",
             "tool": str,
             "args": dict,
             "reason": str,
@@ -149,8 +149,8 @@ class ScriptedPlanner(Planner):
 class GeminiPlanner(Planner):
     """
     LLM-driven Planner powered by Google Gemini API via llm_client.generate_text.
-    Includes Markdown fence stripping, regex extraction, 1-attempt JSON repair on error,
-    pre-execution registry validation, and prompt history summarization.
+    Includes Markdown fence stripping, regex extraction, 1-attempt JSON repair on malformed text,
+    LLM API error classification via classify_error, and prompt history summarization.
     """
 
     def decide_next_action(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -158,6 +158,7 @@ class GeminiPlanner(Planner):
         history = state.get("history", [])
         step_count = state.get("step_count", 0)
         max_steps = state.get("max_steps", 10)
+        logger = state.get("planner_logger")
 
         # Format tool descriptions from TOOL_REGISTRY
         tool_descriptions = []
@@ -219,17 +220,48 @@ Instructions & Rules:
   "final_answer": "Detailed summary response with evidence if action is finish, else empty string"
 }}
 """
+        prompt_len = len(prompt)
 
-        # 1st Attempt to generate and parse decision
+        # ---------------------------------------------------------------------
+        # 1st Attempt to generate decision from LLM API
+        # ---------------------------------------------------------------------
         try:
             raw_response = generate_text(prompt, json_mode=True)
-            return parse_and_validate_decision(raw_response)
-        except Exception as first_err:
-            error_msg = str(first_err)
-            # ONE Repair Attempt
-            repair_prompt = f"""
+        except Exception as first_api_err:
+            err_text = str(first_api_err)
+            if logger and callable(logger):
+                logger(prompt_len=prompt_len, raw_response="", parse_error=err_text, is_repair=False)
+
+            info = classify_error(err_text)
+            return {
+                "action": "api_error",
+                "tool": "",
+                "args": {},
+                "error_text": err_text,
+                "error_type": info.get("error_type", "other"),
+                "retryable": info.get("retryable", False),
+                "retry_after_seconds": info.get("retry_after_seconds"),
+                "reason": f"LLM API Call Exception: {err_text}",
+                "final_answer": ""
+            }
+
+        # Validate 1st Attempt raw response
+        try:
+            decision = parse_and_validate_decision(raw_response)
+            if logger and callable(logger):
+                logger(prompt_len=prompt_len, raw_response=raw_response[:2000], parse_error=None, is_repair=False)
+            return decision
+        except ValueError as val_err:
+            first_val_error = str(val_err)
+            if logger and callable(logger):
+                logger(prompt_len=prompt_len, raw_response=raw_response[:2000], parse_error=first_val_error, is_repair=False)
+
+        # ---------------------------------------------------------------------
+        # ONE Repair Attempt for genuinely malformed JSON output
+        # ---------------------------------------------------------------------
+        repair_prompt = f"""
 Your previous JSON decision response failed validation with the following error:
-{error_msg}
+{first_val_error}
 
 Please correct your output. Return ONLY a valid JSON object matching the schema with no extra text or markdown formatting:
 {{
@@ -240,19 +272,48 @@ Please correct your output. Return ONLY a valid JSON object matching the schema 
   "final_answer": ""
 }}
 """
-            try:
-                # Increment llm_call_notifier if present in state
-                notifier = state.get("llm_call_notifier")
-                if notifier and callable(notifier):
-                    notifier()
+        repair_prompt_len = len(repair_prompt)
 
-                repair_response = generate_text(repair_prompt, json_mode=True)
-                return parse_and_validate_decision(repair_response)
-            except Exception as repair_err:
-                return {
-                    "action": "invalid",
-                    "tool": "",
-                    "args": {},
-                    "reason": f"Failed to parse LLM planner JSON after repair attempt: {str(repair_err)}",
-                    "final_answer": ""
-                }
+        # Increment llm_call_notifier if present in state
+        notifier = state.get("llm_call_notifier")
+        if notifier and callable(notifier):
+            notifier()
+
+        try:
+            repair_raw_response = generate_text(repair_prompt, json_mode=True)
+        except Exception as repair_api_err:
+            err_text = str(repair_api_err)
+            if logger and callable(logger):
+                logger(prompt_len=repair_prompt_len, raw_response="", parse_error=err_text, is_repair=True)
+
+            info = classify_error(err_text)
+            return {
+                "action": "api_error",
+                "tool": "",
+                "args": {},
+                "error_text": err_text,
+                "error_type": info.get("error_type", "other"),
+                "retryable": info.get("retryable", False),
+                "retry_after_seconds": info.get("retry_after_seconds"),
+                "reason": f"LLM API Repair Call Exception: {err_text}",
+                "final_answer": ""
+            }
+
+        # Validate repair attempt raw response
+        try:
+            repair_decision = parse_and_validate_decision(repair_raw_response)
+            if logger and callable(logger):
+                logger(prompt_len=repair_prompt_len, raw_response=repair_raw_response[:2000], parse_error=None, is_repair=True)
+            return repair_decision
+        except ValueError as repair_val_err:
+            second_val_error = str(repair_val_err)
+            if logger and callable(logger):
+                logger(prompt_len=repair_prompt_len, raw_response=repair_raw_response[:2000], parse_error=second_val_error, is_repair=True)
+
+            return {
+                "action": "invalid",
+                "tool": "",
+                "args": {},
+                "reason": f"Failed to parse LLM planner JSON after repair attempt: {second_val_error}",
+                "final_answer": ""
+            }

@@ -10,6 +10,9 @@ Tests:
 4. Repair Attempt Failure (Mocked GeminiPlanner)
 5. Repeated Identical Call Detection (Stuck Loop -> 'stuck_loop')
 6. Total LLM Call Budget Cap (Budget Exhaustion -> 'budget_exhausted')
+7. API Exception Classified as halted_llm_error (Model Not Found / Auth Error)
+8. Quota Error Halts Immediately with no Repair Call (halted_quota & llm_calls=1)
+9. Malformed JSON Takes Repair Path (2 calls -> invalid_planner_output)
 """
 
 import sys
@@ -98,7 +101,6 @@ def test_repair_failure():
 
 def test_stuck_loop_detection():
     """STAND-IN TEST 5: Detects 3 identical tool calls with same args and halts with 'stuck_loop'."""
-    # 3 identical tool decisions
     repeated_decisions = [
         {"action": "tool", "tool": "get_customer_feedback", "args": {}, "reason": "Call 1"},
         {"action": "tool", "tool": "get_customer_feedback", "args": {}, "reason": "Call 2"},
@@ -127,7 +129,6 @@ def test_budget_exhaustion():
     ]
 
     planner = ScriptedPlanner(many_decisions)
-    # Set tight budget of 2 calls
     res = run_agent(
         goal="Test budget limit",
         planner=planner,
@@ -141,6 +142,59 @@ def test_budget_exhaustion():
     print("  [PASS] Stand-In Test 6: LLM budget exhaustion halted execution.")
 
 
+def test_api_error_halted_llm_error():
+    """STAND-IN TEST 7: LLM API exception (404/auth) classifies as halted_llm_error, NOT invalid_planner_output."""
+    planner = GeminiPlanner()
+    api_exception = Exception("404 Model models/gemini-invalid not found")
+
+    with patch("app.agent.planner.generate_text", side_effect=api_exception):
+        res = run_agent(
+            goal="Test LLM API error classification",
+            planner=planner,
+            max_steps=10
+        )
+
+    assert res["status"] == "halted_llm_error"
+    assert "halted_llm_error" in res["status"]
+    assert res["llm_calls"] == 1
+    print("  [PASS] Stand-In Test 7: API Exception classified as 'halted_llm_error' (1 call, 0 repairs).")
+
+
+def test_quota_error_no_repair():
+    """STAND-IN TEST 8: Quota error (429) halts immediately with halted_quota without making repair calls."""
+    planner = GeminiPlanner()
+    quota_exception = Exception("429 You exceeded your current quota for model gemini-3.6-flash. Please retry in 6h.")
+
+    with patch("app.agent.planner.generate_text", side_effect=quota_exception):
+        res = run_agent(
+            goal="Test quota error halting",
+            planner=planner,
+            max_steps=10
+        )
+
+    assert res["status"] == "halted_quota"
+    assert res["llm_calls"] == 1
+    print("  [PASS] Stand-In Test 8: Quota error halted immediately with 'halted_quota' (1 call, 0 repair calls).")
+
+
+def test_malformed_output_repair_path():
+    """STAND-IN TEST 9: Malformed JSON output triggers repair call and halts with invalid_planner_output after 2 consecutive invalid decisions."""
+    planner = GeminiPlanner()
+    bad_json1 = "Malformed prose output 1"
+    bad_json2 = "Malformed prose output 2"
+
+    with patch("app.agent.planner.generate_text", side_effect=[bad_json1, bad_json2, bad_json1, bad_json2]):
+        res = run_agent(
+            goal="Test malformed output repair path",
+            planner=planner,
+            max_steps=10
+        )
+
+    assert res["status"] == "invalid_planner_output"
+    assert res["llm_calls"] == 4
+    print("  [PASS] Stand-In Test 9: Malformed JSON took repair path and halted with 'invalid_planner_output' (4 calls, 2 repairs).")
+
+
 def run_all_stand_in_tests():
     print("=" * 80)
     print(" EchoInsight Agent Planner & Loop Hardening Stand-In Test Suite")
@@ -152,9 +206,12 @@ def run_all_stand_in_tests():
     test_repair_failure()
     test_stuck_loop_detection()
     test_budget_exhaustion()
+    test_api_error_halted_llm_error()
+    test_quota_error_no_repair()
+    test_malformed_output_repair_path()
 
     print("\n" + "=" * 80)
-    print(" ALL STAND-IN HARDENING TESTS PASSED SUCCESSFULLY (6/6)")
+    print(" ALL STAND-IN HARDENING TESTS PASSED SUCCESSFULLY (9/9)")
     print("=" * 80 + "\n")
 
 

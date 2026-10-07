@@ -1,7 +1,8 @@
 """
 backend/app/agent/loop.py
 
-Core Agent Loop for EchoInsight with loop safety, budget caps, and trace metrics.
+Core Agent Loop for EchoInsight with loop safety, budget caps, API error classification,
+and detailed planner call trace logging.
 
 ==============================================================================
 WHAT IS THE AGENT LOOP? (FOR BEGINNERS)
@@ -87,7 +88,7 @@ def run_agent(
     Returns:
         Dict: {
             "run_id": str,
-            "status": "completed" | "halted_quota" | "rejected_by_human" |
+            "status": "completed" | "halted_quota" | "halted_llm_error" | "rejected_by_human" |
                       "max_steps_reached" | "invalid_planner_output" | "stuck_loop" |
                       "budget_exhausted" | "failed" | "approval_timeout",
             "final_answer": str,
@@ -133,6 +134,15 @@ def run_agent(
         nonlocal llm_calls
         llm_calls += 1
 
+    def log_planner_call(prompt_len: int, raw_response: str, parse_error: Optional[str], is_repair: bool) -> None:
+        record_event("planner_call", {
+            "step": step_count + 1,
+            "prompt_len": prompt_len,
+            "raw_response": raw_response[:2000] if raw_response else "",
+            "parse_error": parse_error,
+            "is_repair": is_repair
+        })
+
     # Record initial goal
     record_event("goal_received", {"goal": goal})
     history.append({"role": "user", "content": f"Task Goal: {goal}"})
@@ -167,7 +177,8 @@ def run_agent(
             "max_steps": max_steps,
             "last_created_id": last_created_id,
             "created_unverified_items": sorted(list(created_unverified_items)),
-            "llm_call_notifier": notify_extra_llm_call
+            "llm_call_notifier": notify_extra_llm_call,
+            "planner_logger": log_planner_call
         }
 
         # Step 1: Ask Planner for next action decision
@@ -184,9 +195,39 @@ def run_agent(
             "decision": decision
         })
 
-        # Step 2A: Handle "finish" action
+        # Step 2A: Handle LLM API Errors from Planner
+        if action == "api_error":
+            error_type = decision.get("error_type", "other")
+            error_text = decision.get("error_text", decision.get("reason", "Unknown LLM API error"))
+
+            if error_type == "quota_exhausted":
+                status = "halted_quota"
+                ans = f"Agent halted due to LLM quota exhaustion: {error_text}"
+            else:
+                status = "halted_llm_error"
+                ans = f"Agent halted due to LLM API error ({error_type}): {error_text}"
+
+            record_event("halted", {
+                "status": status,
+                "reason": ans,
+                "llm_calls": llm_calls,
+                "retries": total_retries
+            })
+
+            result_payload = {
+                "run_id": run_id,
+                "status": status,
+                "final_answer": ans,
+                "steps": step_count + 1,
+                "llm_calls": llm_calls,
+                "retries": total_retries,
+                "trace": trace
+            }
+            save_run(run_id, result_payload)
+            return result_payload
+
+        # Step 2B: Handle "finish" action
         if action == "finish":
-            # Verification Guard Enforcement:
             if created_unverified_items:
                 unverified_list = sorted(list(created_unverified_items))
                 record_event("verification", {
@@ -203,7 +244,6 @@ def run_agent(
                 step_count += 1
                 continue
 
-            # Verification Guard passed
             status = "rejected_by_human" if human_rejection_occurred else "completed"
             ans = final_answer if final_answer else (reason if reason else "Task finished successfully.")
             record_event("finish", {
@@ -226,9 +266,8 @@ def run_agent(
             save_run(run_id, result_payload)
             return result_payload
 
-        # Step 2B: Handle "tool" action
+        # Step 2C: Handle "tool" action
         if action == "tool":
-            # Pre-execution Registry & Tool Name Validation
             if not tool_name or tool_name not in TOOL_REGISTRY:
                 consecutive_invalid += 1
                 if consecutive_invalid >= 2:
@@ -252,7 +291,6 @@ def run_agent(
                 step_count += 1
                 continue
 
-            # Check for Stuck Loop (Identical tool call + identical args repeated 3 times)
             current_call_tuple = (tool_name, json.dumps(args, sort_keys=True))
             if current_call_tuple == last_tool_call:
                 consecutive_identical_calls += 1
@@ -284,11 +322,9 @@ def run_agent(
                 save_run(run_id, result_payload)
                 return result_payload
 
-            # Valid tool decision: reset consecutive_invalid
             consecutive_invalid = 0
             tool_meta = TOOL_REGISTRY[tool_name]
 
-            # Approval Guard Enforcement for tools requiring human approval
             if tool_meta.get("requires_approval"):
                 record_event("approval_requested", {
                     "step": step_count + 1,
@@ -335,7 +371,6 @@ def run_agent(
                     step_count += 1
                     continue
 
-            # Tool Execution Loop with Retries (up to 2 retries = 3 attempts)
             tool_fn = tool_meta["function"]
             max_retries = 2
             tool_res: Optional[Dict[str, Any]] = None
@@ -375,9 +410,8 @@ def run_agent(
                 })
 
                 if tool_res.get("ok"):
-                    break  # Success
+                    break
 
-                # Handle failures
                 error_type = tool_res.get("error_type")
                 if error_type == "quota_exhausted":
                     status = "halted_quota"
@@ -408,9 +442,8 @@ def run_agent(
                     print(f"  [Agent Loop Retry] Tool '{tool_name}' transient error ({error_type}). Waiting {wait_sec}s before retry #{attempt}...")
                     sleep_fn(wait_sec)
                 else:
-                    break  # Non-retryable error or retries exhausted
+                    break
 
-            # Update tracking & history after tool call
             if tool_res and tool_res.get("ok"):
                 if tool_name == "create_backlog_item":
                     item_data = tool_res.get("data", {})
@@ -443,7 +476,7 @@ def run_agent(
             step_count += 1
             continue
 
-        # Step 2C: Handle invalid action string
+        # Step 2D: Handle invalid action string
         consecutive_invalid += 1
         if consecutive_invalid >= 2:
             status = "invalid_planner_output"
@@ -465,7 +498,6 @@ def run_agent(
         history.append({"role": "user", "content": obs_action_error})
         step_count += 1
 
-    # Step cap reached
     status = "max_steps_reached"
     ans = f"Agent stopped: Exceeded maximum step limit ({max_steps} steps)."
     record_event("halted", {"status": status, "reason": ans})

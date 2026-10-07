@@ -308,6 +308,22 @@ These tests run deterministically without internet access or Gemini API quota us
 
 ## 📝 Agent Upgrade Changelog
 
+### [2026-10-07] - Planner Error Classification & Diagnosability
+- **What Changed**:
+  - Separated LLM API errors from malformed JSON output in `GeminiPlanner` (`backend/app/agent/planner.py`). LLM API exceptions are classified via `classify_error()` and returned as `action: "api_error"`. Quota exhaustion halts immediately with `halted_quota` (0 repair calls wasted), and auth/model-not-found errors halt with `halted_llm_error`.
+  - Added detailed planner call trace logging in `backend/app/agent/loop.py` recording `prompt_len`, `raw_response` (truncated to 2000 chars), `parse_error`, and `is_repair` flag for every initial and repair attempt.
+  - Updated `backend/eval_agent.py` to halt the evaluation harness immediately on the first `halted_quota` or `halted_llm_error`, add a `Reason / Final Answer` column in output tables, and expect `goal_4` to complete cleanly with an explanation of non-existent tools.
+  - Added stand-in tests in `backend/test_planner_loop_hardening.py` for `halted_llm_error` classification, 1-call `halted_quota` halting, and 2-call malformed JSON repair paths.
+- **Files Touched**:
+  - `backend/app/agent/planner.py`
+  - `backend/app/agent/loop.py`
+  - `backend/data/scripted/goal_4_impossible.json`
+  - `backend/eval_agent.py`
+  - `backend/test_goals.py`
+  - `backend/test_planner_loop_hardening.py`
+  - `README.md`
+- **Why**: Ensures LLM network/API failures are accurately classified and never misreported as invalid planner output, prevents wasting repair calls on API errors, provides complete prompt/response trace diagnosability, and halts evaluation runs immediately when quota is exhausted.
+
 ### [2026-10-07] - GeminiPlanner & Agent Loop Hardening
 - **What Changed**:
   - Hardened `GeminiPlanner` in `backend/app/agent/planner.py` with markdown code fence stripping (` ```json ... ``` `), regex extraction of JSON objects from surrounding prose, pre-execution tool registry validation, and 1-attempt repair prompt fallback on JSON errors.

@@ -18,7 +18,7 @@ Modes:
    Uses GeminiPlanner and calls live Google Gemini API to evaluate real LLM reasoning.
 
 Outputs:
-- Formatted evaluation table printed to terminal showing mode and LLM calls.
+- Formatted evaluation table printed to terminal showing mode, LLM calls, and reasons.
 - Complete evaluation results saved to backend/data/eval_results.json.
 ==============================================================================
 """
@@ -65,15 +65,7 @@ EXPECTED_STATUSES = {
     "goal_1": "completed",
     "goal_2": "completed",
     "goal_3": "completed",
-    "goal_4": "invalid_planner_output"
-}
-
-# Mapping goal ID to scripted decision filename
-SCRIPTED_FILES = {
-    "goal_1": "goal_1_prd_backlog.json",
-    "goal_2": "goal_2_topic_backlog.json",
-    "goal_3": "goal_3_read_only_trend.json",
-    "goal_4": "goal_4_impossible.json"
+    "goal_4": "completed"
 }
 
 
@@ -111,10 +103,10 @@ def run_evaluation(mode: str) -> bool:
     is_live = (mode == "live")
     mode_label = "LIVE GEMINI LLM EVALUATION" if is_live else "SCRIPTED STAND-IN EVALUATION"
 
-    print("=" * 95)
+    print("=" * 115)
     print(f" {BOLD}EchoInsight Autonomous Agent Evaluation Harness{RESET}")
     print(f" {CYAN}MODE: {mode_label}{RESET}")
-    print("=" * 95)
+    print("=" * 115)
 
     if not SAMPLE_GOALS_PATH.exists():
         print(f"{RED}Error: sample_goals.json not found at {SAMPLE_GOALS_PATH}{RESET}")
@@ -130,6 +122,8 @@ def run_evaluation(mode: str) -> bool:
 
     eval_records = []
     all_matched = True
+    halt_triggered = False
+    halt_reason = ""
 
     for item in goals_data:
         goal_id = item.get("id")
@@ -143,7 +137,7 @@ def run_evaluation(mode: str) -> bool:
         if is_live:
             planner = GeminiPlanner()
         else:
-            script_filename = SCRIPTED_FILES.get(goal_id, f"{goal_id}.json")
+            script_filename = SCRIPTED_FILES_map(goal_id)
             script_path = SCRIPTED_DIR / script_filename
             if not script_path.exists():
                 print(f"{RED}  ❌ Scripted file missing: {script_path}{RESET}")
@@ -162,6 +156,7 @@ def run_evaluation(mode: str) -> bool:
         status = result.get("status")
         steps = result.get("steps", 0)
         llm_calls = result.get("llm_calls", 0)
+        final_ans = result.get("final_answer", "")
         trace = result.get("trace", [])
 
         # Count retries
@@ -189,34 +184,51 @@ def run_evaluation(mode: str) -> bool:
             "llm_calls": llm_calls,
             "retries": retries_count,
             "verification_happened": verification_happened,
-            "final_answer": result.get("final_answer", "")
+            "reason": final_ans,
+            "final_answer": final_ans
         }
         eval_records.append(record)
 
         match_str = f"{GREEN}MATCH{RESET}" if status_matched else f"{RED}MISMATCH{RESET}"
         print(f"  --> Status: {status} (Expected: {expected_status}) [{match_str}]")
+        print(f"      Reason / Final Answer: {final_ans}")
         print(f"      Steps: {steps} | LLM Calls: {llm_calls} | Retries: {retries_count} | Verified: {verification_happened}")
 
-    # Output Evaluation Table
-    print("\n" + "=" * 105)
+        # Stop evaluation immediately if halted due to quota or LLM error
+        if status in ["halted_quota", "halted_llm_error"]:
+            halt_triggered = True
+            halt_reason = f"Evaluation halted immediately on goal [{goal_id}] due to '{status}': {final_ans}"
+            print(f"\n{RED}🛑 [EVALUATION HALTED] {halt_reason}{RESET}\n")
+            all_matched = False
+            break
+
+    # Output Evaluation Summary Table
+    print("\n" + "=" * 125)
     print(f" {BOLD}EVALUATION RESULTS SUMMARY ({mode_label}){RESET}")
-    print("=" * 105)
-    print(f"{'Goal ID':<10} | {'Type':<16} | {'Status':<22} | {'Expected':<22} | {'Match':<7} | {'Steps':<5} | {'LLM Calls':<9} | {'Verified':<8}")
-    print("-" * 105)
+    print("=" * 125)
+    print(f"{'Goal ID':<9} | {'Type':<15} | {'Status':<20} | {'Expected':<12} | {'Match':<6} | {'Steps':<5} | {'LLM Calls':<9} | {'Reason / Summary':<38}")
+    print("-" * 125)
 
     for r in eval_records:
         match_symbol = f"{GREEN}YES{RESET}" if r["status_matched"] else f"{RED}NO{RESET}"
-        ver_symbol = "YES" if r["verification_happened"] else "NO"
-        print(f"{r['goal_id']:<10} | {r['goal_type']:<16} | {r['status']:<22} | {r['expected_status']:<22} | {match_symbol:<16} | {r['steps_used']:<5} | {r['llm_calls']:<9} | {ver_symbol:<8}")
+        reason_trunc = r['reason'].replace('\n', ' ')
+        if len(reason_trunc) > 38:
+            reason_trunc = reason_trunc[:35] + "..."
+        print(f"{r['goal_id']:<9} | {r['goal_type']:<15} | {r['status']:<20} | {r['expected_status']:<12} | {match_symbol:<15} | {r['steps_used']:<5} | {r['llm_calls']:<9} | {reason_trunc:<38}")
 
-    print("=" * 105)
+    print("=" * 125)
 
-    # Save to backend/data/eval_results.json
+    if halt_triggered:
+        print(f"{RED}⚠️ HALT WARNING: {halt_reason}{RESET}\n")
+
+    # Save evaluation report to backend/data/eval_results.json
     eval_payload = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "mode": mode,
         "mode_label": mode_label,
         "overall_matched": all_matched,
+        "halt_triggered": halt_triggered,
+        "halt_reason": halt_reason if halt_triggered else None,
         "results": eval_records
     }
 
@@ -229,6 +241,16 @@ def run_evaluation(mode: str) -> bool:
         print(f"{RED}Warning: Failed to save eval_results.json: {str(e)}{RESET}\n")
 
     return all_matched
+
+
+def SCRIPTED_FILES_map(goal_id: str) -> str:
+    mapping = {
+        "goal_1": "goal_1_prd_backlog.json",
+        "goal_2": "goal_2_topic_backlog.json",
+        "goal_3": "goal_3_read_only_trend.json",
+        "goal_4": "goal_4_impossible.json"
+    }
+    return mapping.get(goal_id, f"{goal_id}.json")
 
 
 def main():
