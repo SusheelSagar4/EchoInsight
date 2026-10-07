@@ -238,7 +238,7 @@ sequenceDiagram
 ### Backend Configuration ([`backend/.env`](file:///c:/Bunty/IIT%20BBS/PM/EchoInsight/backend/.env))
 ```ini
 # Google Gemini API key obtained from Google AI Studio
-GEMINI_API_KEY=AIzaSy...
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 - Centralized in `backend/app/services/gemini_config.py`.
