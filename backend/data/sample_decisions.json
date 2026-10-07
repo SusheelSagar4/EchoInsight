@@ -1,0 +1,33 @@
+[
+  {
+    "action": "tool",
+    "tool": "get_customer_feedback",
+    "args": {},
+    "reason": "Fetch customer feedback to identify top complaints"
+  },
+  {
+    "action": "tool",
+    "tool": "create_backlog_item",
+    "args": {
+      "title": "Fix checkout payment gateway timeouts",
+      "description": "Resolve recurring payment gateway errors reported in customer feedback",
+      "priority": "High"
+    },
+    "reason": "Create high priority ticket for checkout payment failures"
+  },
+  {
+    "action": "tool",
+    "tool": "verify_backlog_item",
+    "args": {
+      "item_id": "$LAST_CREATED_ID"
+    },
+    "reason": "Verify created backlog ticket exists in backlog"
+  },
+  {
+    "action": "finish",
+    "tool": "",
+    "args": {},
+    "reason": "Successfully processed feedback and verified backlog ticket",
+    "final_answer": "Customer feedback analyzed and backlog ticket created and verified."
+  }
+]

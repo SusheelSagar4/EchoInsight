@@ -9,6 +9,7 @@ and handles root sanity check endpoints.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .routers.feedback import router as feedback_router
+from .routers.agent import router as agent_router
 
 # Create main FastAPI application instance with explicit docs and openapi configuration
 app = FastAPI(
@@ -31,6 +32,9 @@ app.add_middleware(
 
 # Include the feedback router (/feedback/cluster and /feedback/prd)
 app.include_router(feedback_router)
+
+# Include the autonomous agent router (/agent/run, /agent/runs/{id}, /agent/runs/{id}/approve)
+app.include_router(agent_router)
 
 
 # Root sanity check endpoint

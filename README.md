@@ -109,6 +109,9 @@ Product Managers routinely receive hundreds of unorganized feedback items from e
 | `POST` | `/feedback/cluster` | Analyzes raw text feedback, queries ChromaDB, groups into RICE clusters |
 | `POST` | `/feedback/cluster-csv` | Parses column 1 of uploaded CSV file and executes clustering pipeline |
 | `POST` | `/feedback/prd` | Generates a structured PRD document for a specific feedback cluster |
+| `POST` | `/agent/run` | Starts an autonomous agent run in a background thread, returns `{run_id}` |
+| `GET` | `/agent/runs/{run_id}` | Returns current status, live trace events, and `pending_approval` object |
+| `POST` | `/agent/runs/{run_id}/approve` | Resumes a paused agent run with `{approved: bool}` approval decision |
 
 ---
 
@@ -176,34 +179,34 @@ Open `http://localhost:5173` in your browser.
 
 ## 🤖 Agent Architecture
 
-EchoInsight includes an autonomous AI Agent framework built in Python for executing product intelligence workflows.
+EchoInsight includes an autonomous AI Agent framework built in Python for executing product intelligence workflows via CLI or REST API.
 
 ### Design Principles:
-1. **Swappable Planners (`backend/app/agent/planner.py`)**:
+1. **CLI Engine (`backend/app/agent/cli.py`)**:
+   - Run from terminal: `python -m app.agent.cli "your goal here"`.
+   - Prints live trace events formatted with timestamps as events occur.
+   - Interactive human approvals: prompts `(y/n)` for write operations like `create_backlog_item`.
+   - Supports `--scripted <file.json>` for offline demos and stand-in testing using `ScriptedPlanner`.
+2. **REST API & Thread-Safe Approval Engine (`backend/app/routers/agent.py`)**:
+   - `POST /agent/run` (`{goal}`): Spawns background worker thread running `run_agent()`.
+   - `GET /agent/runs/{run_id}`: Returns current status, live event trace, and `pending_approval` object when paused.
+   - `POST /agent/runs/{run_id}/approve` (`{approved: bool}`): Signals `threading.Event` to resume paused background thread.
+   - **Thread-Safe In-Memory Store**: Uses `AgentRunState` dataclass guarded by `threading.Lock()` and `threading.Event()`.
+   - **Approval Timeout Guard**: Runs waiting for approval automatically time out after 10 minutes (600s, or custom `approval_timeout_seconds`) with status `"approval_timeout"`.
+3. **Swappable Planners (`backend/app/agent/planner.py`)**:
    - Abstract `Planner` interface (`decide_next_action(state)`).
    - Decision schema: `{"action": "tool" | "finish", "tool": str, "args": dict, "reason": str, "final_answer": str}`.
-   - `ScriptedPlanner`: Replays pre-scripted decision lists for deterministic, zero-API unit testing.
-   - `GeminiPlanner`: Constructs concise prompts with `TOOL_REGISTRY` metadata and execution history, invoking `llm_client.generate_text(prompt, json_mode=True)` to produce structured decisions.
-2. **Core Agent Loop & Guard Rules (`backend/app/agent/loop.py`)**:
-   - `run_agent(goal, planner, approval_handler, max_steps, sleep_fn)`: Manages the full perception-decision-execution cycle.
+   - `ScriptedPlanner`: Replays pre-scripted decision lists for deterministic, zero-API unit testing. Resolves `$LAST_CREATED_ID` dynamically.
+   - `GeminiPlanner`: Constructs concise prompts with `TOOL_REGISTRY` metadata and execution history, invoking `llm_client.generate_text(prompt, json_mode=True)`.
+4. **Core Agent Loop & Guard Rules (`backend/app/agent/loop.py`)**:
+   - `run_agent(goal, planner, approval_handler, max_steps, sleep_fn, event_callback, run_id)`: Manages perception-decision-execution cycle.
    - **Verification Guard**: Refuses a `"finish"` decision if any write tool (`create_backlog_item`) succeeded but has not been verified yet with `verify_backlog_item`.
    - **Approval Guard**: Invokes `approval_handler` before executing tools requiring approval (`requires_approval=True`). Records rejections without executing the write tool.
-   - **Retry & Quota Rules**: Retries transient errors (`retryable=True`) up to 2 times using `sleep_fn(wait_sec)` (capped at 60s); halts immediately on `error_type == "quota_exhausted"`.
-   - **Invalid Decision Protection**: Halts with status `"invalid_planner_output"` after 2 consecutive invalid planner decisions.
-   - **Step Cap**: Stops with status `"max_steps_reached"` if step limit is reached.
-   - **History Truncation**: Truncates large tool result data in history passed to planner while keeping full output in trace.
+   - **Retry & Quota Rules**: Retries transient errors (`retryable=True`) up to 2 times using `sleep_fn(wait_sec)`; halts immediately on `error_type == "quota_exhausted"`.
    - **Run Persistence**: Saves complete run payload and event trace to `backend/data/runs/<run_id>.json`.
-   - **Statuses**: `completed` | `halted_quota` | `rejected_by_human` | `max_steps_reached` | `invalid_planner_output` | `failed`.
-3. **Error Classification & Retry Metadata**: Failure envelopes return:
-   `{"ok": False, "error": "<msg>", "retryable": <bool>, "error_type": "<type>", "retry_after_seconds": <int|None>}`
-   - `error_type` is categorized as `"rate_limited"`, `"timeout"`, `"quota_exhausted"`, or `"other"`.
-   - `parse_duration_seconds` converts complex duration strings (e.g., `7h45m38.1s`, `44.45s`, `seconds: 27938`) to total seconds.
-4. **Unified LLM Client with Dev Caching (`backend/app/services/llm_client.py`)**:
-   - Centralizes Gemini model calls via `generate_text(prompt, json_mode)`.
-   - Reads model name from `GEMINI_MODEL` env var (default `"gemini-3.6-flash"`).
-   - Supports local dev response caching when `LLM_CACHE=1`, saving prompt hashes and responses to `backend/data/llm_cache/`.
-5. **Declarative Tool Registry**: Central `TOOL_REGISTRY` mapping tool names to functions, clear descriptions, argument metadata, and approval flags (`requires_approval=True` ONLY for write operations like `create_backlog_item`).
-6. **Resilient Local Persistence**: Engineering backlog items are assigned incremental IDs (`ENG-101`) and saved to `backend/data/backlog.json`.
+   - **Statuses**: `completed` | `waiting_approval` | `approval_timeout` | `halted_quota` | `rejected_by_human` | `max_steps_reached` | `invalid_planner_output` | `failed`.
+5. **Error Classification & Retry Metadata**: Failure envelopes return:
+   `{"ok": False, "error": "<msg>", "retryable": <bool>, "error_type": "<type>", "retry_after_seconds": <int|None>}`.
 
 ### Available Tools:
 - `get_customer_feedback()`: Reads customer feedback lines from CSV.
@@ -217,6 +220,23 @@ EchoInsight includes an autonomous AI Agent framework built in Python for execut
 ---
 
 ## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - CLI Runner, REST API Router & Human Approval Pause/Resume Engine
+- **What Changed**:
+  - Implemented `backend/app/agent/cli.py` providing a command-line interface (`python -m app.agent.cli "goal"`) with real-time formatted trace printing, interactive `(y/n)` approval prompts, UTF-8 Windows console output encoding, and `--scripted <file.json>` support for offline execution.
+  - Created `backend/app/routers/agent.py` exposing `POST /agent/run`, `GET /agent/runs/{run_id}`, and `POST /agent/runs/{run_id}/approve` endpoints backed by a thread-safe in-memory run store and disk JSON persistence (`backend/data/runs/`).
+  - Implemented human approval pause/resume synchronization using `threading.Event` and enforced a 10-minute approval timeout (`status: "approval_timeout"`).
+  - Registered `agent_router` in `backend/app/main.py` without touching existing `/feedback/*` endpoints.
+  - Added `backend/test_agent_api.py` testing approval approve (`approved=True`), approval rejection (`approved=False`), approval timeout (`approval_timeout`), and error handling (404/400) using `ScriptedPlanner` and `TestClient`.
+- **Files Touched**:
+  - `backend/app/agent/cli.py`
+  - `backend/app/routers/agent.py`
+  - `backend/app/agent/loop.py`
+  - `backend/app/main.py`
+  - `backend/data/sample_decisions.json`
+  - `backend/test_agent_api.py`
+  - `README.md`
+- **Why**: Enables the autonomous agent to be executed interactively via CLI or asynchronously via REST API, allowing frontend applications to monitor live execution traces, pause for human supervisor approval on write tools, and enforce approval timeouts.
 
 ### [2026-10-07] - Swappable Planner & Core Agent Loop Architecture
 - **What Changed**:

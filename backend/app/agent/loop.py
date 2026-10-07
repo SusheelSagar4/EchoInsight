@@ -32,6 +32,11 @@ DATA_DIR = BACKEND_DIR / "data"
 RUNS_DIR = DATA_DIR / "runs"
 
 
+class ApprovalTimeoutError(Exception):
+    """Raised when an approval request times out waiting for human confirmation."""
+    pass
+
+
 def truncate_text_for_history(text: str, max_len: int = 400) -> str:
     """
     Truncates large tool output text for the planner's prompt history,
@@ -62,7 +67,9 @@ def run_agent(
     planner: Planner,
     approval_handler: Optional[Callable[[str, Dict[str, Any], str], bool]] = None,
     max_steps: int = 10,
-    sleep_fn: Callable[[float], None] = time.sleep
+    sleep_fn: Callable[[float], None] = time.sleep,
+    event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    run_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Runs the main agent loop.
@@ -73,18 +80,19 @@ def run_agent(
         approval_handler (Callable): Optional function to request human approval for write tools.
         max_steps (int): Maximum number of execution steps before halting.
         sleep_fn (Callable): Function used for sleeping during retries (overridden in tests).
+        event_callback (Callable): Optional callback function invoked on each new trace event.
 
     Returns:
         Dict: {
             "run_id": str,
             "status": "completed" | "halted_quota" | "rejected_by_human" |
-                      "max_steps_reached" | "invalid_planner_output" | "failed",
+                      "max_steps_reached" | "invalid_planner_output" | "failed" | "approval_timeout",
             "final_answer": str,
             "steps": int,
             "trace": list[dict]
         }
     """
-    run_id = f"run_{uuid.uuid4().hex[:10]}"
+    run_id = run_id or f"run_{uuid.uuid4().hex[:10]}"
     trace: List[Dict[str, Any]] = []
     history: List[Dict[str, str]] = []
 
@@ -96,11 +104,18 @@ def run_agent(
     step_count: int = 0
 
     def record_event(event_type: str, details: Dict[str, Any]) -> None:
-        trace.append({
+        evt = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": event_type,
             **details
-        })
+        }
+        trace.append(evt)
+        if event_callback:
+            try:
+                event_callback(evt)
+            except Exception:
+                pass
+
 
     # Record initial goal
     record_event("goal_received", {"goal": goal})
@@ -209,6 +224,19 @@ def run_agent(
                 if approval_handler:
                     try:
                         approved = bool(approval_handler(tool_name, args, reason))
+                    except ApprovalTimeoutError:
+                        status = "approval_timeout"
+                        ans = f"Agent halted: Waiting for human approval of tool '{tool_name}' timed out."
+                        record_event("halted", {"status": status, "reason": ans})
+                        result_payload = {
+                            "run_id": run_id,
+                            "status": status,
+                            "final_answer": ans,
+                            "steps": step_count + 1,
+                            "trace": trace
+                        }
+                        save_run(run_id, result_payload)
+                        return result_payload
                     except Exception as app_err:
                         approved = False
 
