@@ -222,6 +222,19 @@ EchoInsight includes an autonomous AI Agent framework built in Python for execut
 
 ## 📝 Agent Upgrade Changelog
 
+### [2026-10-07] - React Autonomous Agent Control Center Frontend View
+- **What Changed**:
+  - Implemented `frontend/src/AgentView.jsx` React component providing an interactive Agent Control Center with example goal pills, custom goal text entry, live trace timeline polling (`GET /agent/runs/{id}` every 1.5s), approval request cards (`POST .../approve`), final result summary cards with verified backlog ticket IDs, and cold-start server resilience banners.
+  - Added CSS styles in `frontend/src/App.css` matching EchoInsight's Liquid Glass Dark design system, including event timeline cards, amber retry indicators, red failure alerts, glowing approval cards, and green success badges.
+  - Integrated `AgentView` into `frontend/src/App.jsx` with tabbed navigation allowing smooth switching between Product Overview, RICE Workspace, and Agent Control Center.
+  - Verified `npm run lint` (0 errors) and `npm run build` (clean Vite build).
+- **Files Touched**:
+  - `frontend/src/AgentView.jsx`
+  - `frontend/src/App.jsx`
+  - `frontend/src/App.css`
+  - `README.md`
+- **Why**: Empowers product managers and developers to interactively trigger, monitor, approve, and audit multi-step autonomous agent runs directly from the web application interface.
+
 ### [2026-10-07] - Multi-Goal Support, Feedback Trend Analysis & Graceful Failure Handling
 - **What Changed**:
   - Added read-only tool `get_feedback_trend(theme_query, top_k)` in `backend/app/agent/tools.py` registered in `TOOL_REGISTRY` with `requires_approval=False`.

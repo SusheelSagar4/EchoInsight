@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import AgentView from './AgentView'
 import './App.css'
 
 // Base URL for backend API requests, loaded from environment variables (sanitized to remove trailing slashes) or defaulting to live Render backend
@@ -79,7 +80,7 @@ const DEMO_PRD_DATA = {
 }
 
 function App() {
-  // Navigation mode: 'landing' (default landing page) or 'workspace' (working cluster model)
+  // Navigation mode: 'landing' (default landing page), 'workspace' (cluster/PRD model), or 'agent' (autonomous agent)
   const [viewMode, setViewMode] = useState('landing')
 
   // Working Workspace State
@@ -113,9 +114,13 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  const switchToAgent = () => {
+    setViewMode('agent')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   // Core Demo Runner Function
-  const runDemoSequence = useRef(null)
-  runDemoSequence.current = () => {
+  const runDemoSequence = useCallback(() => {
     if (demoState !== 'idle') return
 
     setDemoState('typing')
@@ -153,14 +158,14 @@ function App() {
         }, 400)
       }
     }, 30)
-  }
+  }, [demoState])
 
   // Scroll Helper with forced demo trigger
   const scrollToDemo = () => {
     document.getElementById('demo-section')?.scrollIntoView({ behavior: 'smooth' })
     if (demoState === 'idle') {
       setTimeout(() => {
-        runDemoSequence.current?.()
+        runDemoSequence()
       }, 300)
     }
   }
@@ -176,7 +181,7 @@ function App() {
       (entries) => {
         const [entry] = entries
         if (entry.isIntersecting && demoState === 'idle') {
-          runDemoSequence.current?.()
+          runDemoSequence()
         }
       },
       { threshold: 0.05 }
@@ -189,7 +194,7 @@ function App() {
       if (demoState === 'idle') {
         const rect = demoSection.getBoundingClientRect()
         if (rect.top < window.innerHeight * 0.88) {
-          runDemoSequence.current?.()
+          runDemoSequence()
         }
       }
     }
@@ -201,7 +206,7 @@ function App() {
       window.removeEventListener('scroll', handleScrollTrigger)
       observer.disconnect()
     }
-  }, [viewMode, demoState])
+  }, [viewMode, demoState, runDemoSequence])
 
   // Hero Particle Canvas System
   useEffect(() => {
@@ -480,7 +485,7 @@ function App() {
       {/* =========================================================================
          LANDING PAGE VIEW
          ========================================================================= */}
-      {viewMode === 'landing' ? (
+      {viewMode === 'landing' && (
         <>
           {/* Navigation Bar */}
           <header className="navbar-container">
@@ -501,11 +506,11 @@ function App() {
                 <button type="button" onClick={scrollToDemo} className="nav-pill shine-effect">
                   How It Works
                 </button>
-                <button type="button" onClick={scrollToDemo} className="nav-pill shine-effect">
-                  Clusters
+                <button type="button" onClick={switchToWorkspace} className="nav-pill shine-effect">
+                  📊 Workspace
                 </button>
-                <button type="button" onClick={scrollToDemo} className="nav-pill shine-effect">
-                  PRD Generator
+                <button type="button" onClick={switchToAgent} className="nav-pill shine-effect">
+                  🤖 AI Agent
                 </button>
               </div>
 
@@ -776,7 +781,9 @@ function App() {
             </div>
           </section>
         </>
-      ) : (
+      )}
+
+      {viewMode === 'workspace' && (
         /* =========================================================================
            INTERACTIVE WORKING WORKSPACE VIEW
            ========================================================================= */
@@ -795,6 +802,15 @@ function App() {
                   <span className="logo-wordmark">EchoInsight</span>
                   <span className="workspace-pill-badge">INTERACTIVE WORKSPACE</span>
                 </a>
+              </div>
+
+              <div className="nav-center">
+                <button type="button" onClick={switchToWorkspace} className="nav-pill shine-effect">
+                  📊 Workspace
+                </button>
+                <button type="button" onClick={switchToAgent} className="nav-pill shine-effect">
+                  🤖 AI Agent
+                </button>
               </div>
 
               <div className="nav-right">
@@ -1001,6 +1017,49 @@ function App() {
                   </div>
                 </section>
               )}
+            </div>
+          </main>
+        </div>
+      )}
+
+      {/* Autonomous Agent Control Center View */}
+      {viewMode === 'agent' && (
+        <div className="workspace-wrapper">
+          <header className="navbar-container">
+            <nav className="navbar">
+              <div className="nav-left">
+                <a href="#" onClick={switchToLanding} className="logo-link" aria-label="EchoInsight Home">
+                  <svg className="logo-icon" width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="4" y="5" width="20" height="4.5" rx="2.25" fill="#FFFFFF" />
+                    <rect x="4" y="12" width="13" height="4.5" rx="2.25" fill="#FFFFFF" fillOpacity="0.75" />
+                    <rect x="4" y="19" width="20" height="4.5" rx="2.25" fill="#FFFFFF" />
+                    <circle cx="22.5" cy="14.25" r="2.5" fill="#9A9A9A" />
+                  </svg>
+                  <span className="logo-wordmark">EchoInsight</span>
+                  <span className="workspace-pill-badge">AGENT CONTROL CENTER</span>
+                </a>
+              </div>
+
+              <div className="nav-center">
+                <button type="button" onClick={switchToWorkspace} className="nav-pill shine-effect">
+                  📊 Workspace
+                </button>
+                <button type="button" onClick={switchToAgent} className="nav-pill shine-effect">
+                  🤖 AI Agent
+                </button>
+              </div>
+
+              <div className="nav-right">
+                <button type="button" onClick={switchToLanding} className="btn-ghost shine-effect nav-cta">
+                  ← Back to Product Overview
+                </button>
+              </div>
+            </nav>
+          </header>
+
+          <main className="tool-section">
+            <div className="tool-container">
+              <AgentView apiBaseUrl={API_BASE_URL} />
             </div>
           </main>
         </div>
