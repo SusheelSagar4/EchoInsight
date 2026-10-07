@@ -57,6 +57,8 @@ backend/chroma_data/
 # Agent Runtime Data
 backend/data/backlog.json
 backend/data/llm_cache/
+backend/data/runs/
+
 
 
 

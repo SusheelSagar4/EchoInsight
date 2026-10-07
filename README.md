@@ -176,24 +176,34 @@ Open `http://localhost:5173` in your browser.
 
 ## 🤖 Agent Architecture
 
-EchoInsight includes an autonomous AI Agent tool layer built in Python for executing product intelligence workflows.
+EchoInsight includes an autonomous AI Agent framework built in Python for executing product intelligence workflows.
 
 ### Design Principles:
-1. **Error Classification & Retry Metadata**: Failure envelopes return:
+1. **Swappable Planners (`backend/app/agent/planner.py`)**:
+   - Abstract `Planner` interface (`decide_next_action(state)`).
+   - Decision schema: `{"action": "tool" | "finish", "tool": str, "args": dict, "reason": str, "final_answer": str}`.
+   - `ScriptedPlanner`: Replays pre-scripted decision lists for deterministic, zero-API unit testing.
+   - `GeminiPlanner`: Constructs concise prompts with `TOOL_REGISTRY` metadata and execution history, invoking `llm_client.generate_text(prompt, json_mode=True)` to produce structured decisions.
+2. **Core Agent Loop & Guard Rules (`backend/app/agent/loop.py`)**:
+   - `run_agent(goal, planner, approval_handler, max_steps, sleep_fn)`: Manages the full perception-decision-execution cycle.
+   - **Verification Guard**: Refuses a `"finish"` decision if any write tool (`create_backlog_item`) succeeded but has not been verified yet with `verify_backlog_item`.
+   - **Approval Guard**: Invokes `approval_handler` before executing tools requiring approval (`requires_approval=True`). Records rejections without executing the write tool.
+   - **Retry & Quota Rules**: Retries transient errors (`retryable=True`) up to 2 times using `sleep_fn(wait_sec)` (capped at 60s); halts immediately on `error_type == "quota_exhausted"`.
+   - **Invalid Decision Protection**: Halts with status `"invalid_planner_output"` after 2 consecutive invalid planner decisions.
+   - **Step Cap**: Stops with status `"max_steps_reached"` if step limit is reached.
+   - **History Truncation**: Truncates large tool result data in history passed to planner while keeping full output in trace.
+   - **Run Persistence**: Saves complete run payload and event trace to `backend/data/runs/<run_id>.json`.
+   - **Statuses**: `completed` | `halted_quota` | `rejected_by_human` | `max_steps_reached` | `invalid_planner_output` | `failed`.
+3. **Error Classification & Retry Metadata**: Failure envelopes return:
    `{"ok": False, "error": "<msg>", "retryable": <bool>, "error_type": "<type>", "retry_after_seconds": <int|None>}`
    - `error_type` is categorized as `"rate_limited"`, `"timeout"`, `"quota_exhausted"`, or `"other"`.
    - `parse_duration_seconds` converts complex duration strings (e.g., `7h45m38.1s`, `44.45s`, `seconds: 27938`) to total seconds.
-   - Long delays (> 120 seconds) or `PerDay` limits are accurately categorized as `quota_exhausted` with `retryable: False`.
-2. **Unified LLM Client with Dev Caching (`backend/app/services/llm_client.py`)**:
+4. **Unified LLM Client with Dev Caching (`backend/app/services/llm_client.py`)**:
    - Centralizes Gemini model calls via `generate_text(prompt, json_mode)`.
    - Reads model name from `GEMINI_MODEL` env var (default `"gemini-3.6-flash"`).
    - Supports local dev response caching when `LLM_CACHE=1`, saving prompt hashes and responses to `backend/data/llm_cache/`.
-3. **Honest Test Suite Execution (`backend/test_tools.py`)**:
-   - Executes each tool in sequence without hiding real API failures using mock fallbacks.
-   - Retries transient errors (`retryable=True`) once after sleeping `N+2` seconds.
-   - Outputs a summary table listing each tool's status (`PASS`, `FAIL`, or `SKIPPED`) and an overall result of `PASS` only if all tools pass.
-4. **Declarative Tool Registry**: Central `TOOL_REGISTRY` mapping tool names to functions, clear descriptions, argument metadata, and approval flags (`requires_approval=True` ONLY for write operations like `create_backlog_item`).
-5. **Resilient Local Persistence**: Engineering backlog items are assigned incremental IDs (`ENG-101`) and saved to `backend/data/backlog.json`.
+5. **Declarative Tool Registry**: Central `TOOL_REGISTRY` mapping tool names to functions, clear descriptions, argument metadata, and approval flags (`requires_approval=True` ONLY for write operations like `create_backlog_item`).
+6. **Resilient Local Persistence**: Engineering backlog items are assigned incremental IDs (`ENG-101`) and saved to `backend/data/backlog.json`.
 
 ### Available Tools:
 - `get_customer_feedback()`: Reads customer feedback lines from CSV.
@@ -207,6 +217,20 @@ EchoInsight includes an autonomous AI Agent tool layer built in Python for execu
 ---
 
 ## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - Swappable Planner & Core Agent Loop Architecture
+- **What Changed**:
+  - Created `backend/app/agent/planner.py` defining the `Planner` interface, `ScriptedPlanner` for stand-in test replay, and `GeminiPlanner` for Gemini LLM decision generation.
+  - Implemented `backend/app/agent/loop.py` containing `run_agent()`, enforcing verification guards, human approval handlers, transient error retry loops, immediate quota exhaustion halting, consecutive invalid decision protection, step caps, and run JSON persistence.
+  - Created `backend/test_agent_loop.py` with 7 isolated test cases for loop mechanics, outputting a clear summary table and overall PASS status.
+  - Added `backend/data/runs/` to `.gitignore`.
+- **Files Touched**:
+  - `backend/app/agent/planner.py`
+  - `backend/app/agent/loop.py`
+  - `backend/test_agent_loop.py`
+  - `.gitignore`
+  - `README.md`
+- **Why**: Provides a robust, safe, and verifiable autonomous loop architecture capable of executing multi-step product workflows, enforcing human approval, protecting against infinite loops, and persisting execution traces.
 
 ### [2026-10-07] - LLM Client Caching, Duration Error Parsing & Honest Test Suite
 - **What Changed**:
@@ -226,6 +250,7 @@ EchoInsight includes an autonomous AI Agent tool layer built in Python for execu
   - `.gitignore`
   - `README.md`
 - **Why**: Prevents misclassifying hours as seconds in rate limits, distinguishes daily quota exhaustion from temporary per-minute limits, provides local LLM dev caching to protect API quota, and enforces honest test reporting without false positives.
+
 
 ### [2026-10-07] - Retryable Failure Metadata & Rate Limit Handler
 - **What Changed**: Enhanced tool failure envelopes to include `retryable` (boolean) and `retry_after_seconds` (integer or None) fields parsed via `classify_error()`. Updated `test_tools.py` with an isolated retry helper `execute_with_test_retry` that waits `N+2` seconds when encountering transient errors.
