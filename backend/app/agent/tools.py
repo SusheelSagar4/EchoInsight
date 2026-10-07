@@ -22,7 +22,9 @@ In AI development, a "Tool" is simply a standard Python function wrapped with:
 
 import csv
 import json
+import math
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -48,6 +50,90 @@ _first_failure_occurred: bool = False
 
 
 # ==============================================================================
+# Error Classification & Failure Envelope Helper
+# ==============================================================================
+def classify_error(message: str) -> Dict[str, Any]:
+    """
+    Analyzes an error message to determine if it is temporary/retryable
+    and extracts or estimates the recommended retry delay (in seconds).
+
+    Beginner explanation:
+    Not all errors are equal! A 'File Not Found' error is permanent, but a '429 Rate Limit'
+    or 'Timeout' is temporary. This helper checks if an error message contains rate limit,
+    quota, or timeout keywords, and calculates how many seconds the caller should wait
+    before retrying.
+
+    Args:
+        message (str): The raw error message string.
+
+    Returns:
+        dict: {"retryable": bool, "retry_after_seconds": int | None}
+    """
+    if not message or not isinstance(message, str):
+        return {"retryable": False, "retry_after_seconds": None}
+
+    msg_lower = message.lower()
+
+    # Keywords indicating a temporary, quota, or rate-limited error
+    retryable_keywords = ["429", "quota", "rate limit", "timed out", "timeout", "503"]
+    is_retryable = any(kw in msg_lower for kw in retryable_keywords)
+
+    if not is_retryable:
+        return {"retryable": False, "retry_after_seconds": None}
+
+    delay_seconds: Optional[float] = None
+
+    # Pattern 1: "retry in 44.45s", "retry in 44.45 s", "retry in 44 seconds"
+    match_retry_in = re.search(r"retry\s+in\s+([\d\.]+)\s*s?", msg_lower)
+    if match_retry_in:
+        try:
+            delay_seconds = float(match_retry_in.group(1))
+        except ValueError:
+            pass
+
+    # Pattern 2: "seconds: 44", "seconds: 28505"
+    if delay_seconds is None:
+        match_seconds = re.search(r"seconds:\s*([\d\.]+)", msg_lower)
+        if match_seconds:
+            try:
+                delay_seconds = float(match_seconds.group(1))
+            except ValueError:
+                pass
+
+    if delay_seconds is not None and delay_seconds > 0:
+        retry_after = math.ceil(delay_seconds)
+    else:
+        # Default retry delay if retryable but no specific delay parsed from message
+        retry_after = 30
+
+    return {
+        "retryable": True,
+        "retry_after_seconds": retry_after
+    }
+
+
+def make_failure_envelope(error_message: str) -> Dict[str, Any]:
+    """
+    Constructs a standardized failure envelope dictionary containing classification metrics.
+
+    Returns:
+        Dict: {
+            "ok": False,
+            "error": error_message,
+            "retryable": bool,
+            "retry_after_seconds": int | None
+        }
+    """
+    info = classify_error(error_message)
+    return {
+        "ok": False,
+        "error": str(error_message),
+        "retryable": info["retryable"],
+        "retry_after_seconds": info["retry_after_seconds"]
+    }
+
+
+# ==============================================================================
 # Tool 1: Get Customer Feedback
 # ==============================================================================
 def get_customer_feedback() -> Dict[str, Any]:
@@ -59,14 +145,11 @@ def get_customer_feedback() -> Dict[str, Any]:
     column, and returns them as a Python list of strings inside a standard envelope.
 
     Returns:
-        Dict envelope: {"ok": True, "data": list[str]} or {"ok": False, "error": str}
+        Dict envelope: {"ok": True, "data": list[str]} or failure envelope with retry metadata
     """
     try:
         if not SAMPLE_FEEDBACK_PATH.exists():
-            return {
-                "ok": False,
-                "error": f"Sample feedback file not found at {SAMPLE_FEEDBACK_PATH}"
-            }
+            return make_failure_envelope(f"Sample feedback file not found at {SAMPLE_FEEDBACK_PATH}")
 
         feedback_lines: List[str] = []
         with open(SAMPLE_FEEDBACK_PATH, mode="r", encoding="utf-8") as f:
@@ -79,7 +162,8 @@ def get_customer_feedback() -> Dict[str, Any]:
         return {"ok": True, "data": feedback_lines}
 
     except Exception as e:
-        return {"ok": False, "error": f"Failed to read customer feedback: {str(e)}"}
+        return make_failure_envelope(f"Failed to read customer feedback: {str(e)}")
+
 
 
 # ==============================================================================
@@ -99,11 +183,11 @@ def search_memory(query: str, top_k: int = 5) -> Dict[str, Any]:
         top_k (int): Maximum number of similar items to retrieve (default: 5).
 
     Returns:
-        Dict envelope: {"ok": True, "data": list[dict]} or {"ok": False, "error": str}
+        Dict envelope: {"ok": True, "data": list[dict]} or failure envelope with retry metadata
     """
     try:
         if not query or not isinstance(query, str) or not query.strip():
-            return {"ok": False, "error": "Query string must not be empty."}
+            return make_failure_envelope("Query string must not be empty.")
 
         # Step 1: Generate embedding vector for the search query
         query_embedding = get_embedding(query.strip())
@@ -114,7 +198,7 @@ def search_memory(query: str, top_k: int = 5) -> Dict[str, Any]:
         return {"ok": True, "data": matches}
 
     except Exception as e:
-        return {"ok": False, "error": f"Failed to search vector memory: {str(e)}"}
+        return make_failure_envelope(f"Failed to search vector memory: {str(e)}")
 
 
 # ==============================================================================
@@ -133,16 +217,16 @@ def cluster_feedback_tool(feedback_lines: List[str]) -> Dict[str, Any]:
         feedback_lines (List[str]): List of raw feedback text strings.
 
     Returns:
-        Dict envelope: {"ok": True, "data": list[dict]} or {"ok": False, "error": str}
+        Dict envelope: {"ok": True, "data": list[dict]} or failure envelope with retry metadata
     """
     try:
         if not feedback_lines or not isinstance(feedback_lines, list):
-            return {"ok": False, "error": "feedback_lines must be a non-empty list of strings."}
+            return make_failure_envelope("feedback_lines must be a non-empty list of strings.")
 
         # Join feedback lines with newlines
         raw_feedback_text = "\n".join([str(line) for line in feedback_lines if line])
         if not raw_feedback_text.strip():
-            return {"ok": False, "error": "No valid feedback text provided to cluster."}
+            return make_failure_envelope("No valid feedback text provided to cluster.")
 
         # Call existing clustering service
         clusters = cluster_feedback(raw_feedback_text)
@@ -153,7 +237,7 @@ def cluster_feedback_tool(feedback_lines: List[str]) -> Dict[str, Any]:
         return {"ok": True, "data": clusters_data}
 
     except Exception as e:
-        return {"ok": False, "error": f"Failed to cluster feedback: {str(e)}"}
+        return make_failure_envelope(f"Failed to cluster feedback: {str(e)}")
 
 
 # ==============================================================================
@@ -172,11 +256,11 @@ def rank_clusters(clusters: List[Dict[str, Any]]) -> Dict[str, Any]:
         clusters (List[Dict[str, Any]]): List of cluster dictionaries.
 
     Returns:
-        Dict envelope: {"ok": True, "data": list[dict]} or {"ok": False, "error": str}
+        Dict envelope: {"ok": True, "data": list[dict]} or failure envelope with retry metadata
     """
     try:
         if not isinstance(clusters, list):
-            return {"ok": False, "error": "clusters parameter must be a list."}
+            return make_failure_envelope("clusters parameter must be a list.")
 
         # Sort clusters by rice_score (highest first)
         ranked = sorted(
@@ -188,7 +272,7 @@ def rank_clusters(clusters: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {"ok": True, "data": ranked}
 
     except Exception as e:
-        return {"ok": False, "error": f"Failed to rank clusters: {str(e)}"}
+        return make_failure_envelope(f"Failed to rank clusters: {str(e)}")
 
 
 # ==============================================================================
@@ -207,11 +291,11 @@ def generate_prd_tool(cluster: Dict[str, Any]) -> Dict[str, Any]:
         cluster (Dict[str, Any]): A single FeedbackCluster dictionary.
 
     Returns:
-        Dict envelope: {"ok": True, "data": dict} or {"ok": False, "error": str}
+        Dict envelope: {"ok": True, "data": dict} or failure envelope with retry metadata
     """
     try:
         if not cluster or not isinstance(cluster, dict):
-            return {"ok": False, "error": "cluster parameter must be a valid dictionary."}
+            return make_failure_envelope("cluster parameter must be a valid dictionary.")
 
         # Rebuild FeedbackCluster Pydantic model from dictionary
         cluster_model = FeedbackCluster(**cluster)
@@ -223,7 +307,7 @@ def generate_prd_tool(cluster: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": True, "data": prd_model.model_dump()}
 
     except Exception as e:
-        return {"ok": False, "error": f"Failed to generate PRD: {str(e)}"}
+        return make_failure_envelope(f"Failed to generate PRD: {str(e)}")
 
 
 # ==============================================================================
@@ -248,7 +332,7 @@ def create_backlog_item(title: str, description: str, priority: str) -> Dict[str
         priority (str): Priority rating ("High", "Medium", or "Low").
 
     Returns:
-        Dict envelope: {"ok": True, "data": dict} or {"ok": False, "error": str}
+        Dict envelope: {"ok": True, "data": dict} or failure envelope with retry metadata
     """
     global _first_failure_occurred
 
@@ -260,9 +344,9 @@ def create_backlog_item(title: str, description: str, priority: str) -> Dict[str
 
         # Input validation
         if not title or not isinstance(title, str):
-            return {"ok": False, "error": "Title string is required."}
+            return make_failure_envelope("Title string is required.")
         if not description or not isinstance(description, str):
-            return {"ok": False, "error": "Description string is required."}
+            return make_failure_envelope("Description string is required.")
 
         # Ensure directory exists
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -310,7 +394,7 @@ def create_backlog_item(title: str, description: str, priority: str) -> Dict[str
         return {"ok": True, "data": new_item}
 
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return make_failure_envelope(str(e))
 
 
 # ==============================================================================
@@ -328,19 +412,19 @@ def verify_backlog_item(item_id: str) -> Dict[str, Any]:
         item_id (str): Unique ticket ID to verify (e.g., "ENG-101").
 
     Returns:
-        Dict envelope: {"ok": True, "data": dict} or {"ok": False, "error": str}
+        Dict envelope: {"ok": True, "data": dict} or failure envelope with retry metadata
     """
     try:
         if not item_id or not isinstance(item_id, str):
-            return {"ok": False, "error": "item_id string is required."}
+            return make_failure_envelope("item_id string is required.")
 
         if not BACKLOG_PATH.exists():
-            return {"ok": False, "error": f"Backlog item '{item_id}' not found (backlog file does not exist)."}
+            return make_failure_envelope(f"Backlog item '{item_id}' not found (backlog file does not exist).")
 
         with open(BACKLOG_PATH, mode="r", encoding="utf-8") as f:
             content = f.read().strip()
             if not content:
-                return {"ok": False, "error": f"Backlog item '{item_id}' not found (backlog file is empty)."}
+                return make_failure_envelope(f"Backlog item '{item_id}' not found (backlog file is empty).")
             items: List[Dict[str, Any]] = json.loads(content)
 
         # Search for ticket matching item_id
@@ -348,10 +432,11 @@ def verify_backlog_item(item_id: str) -> Dict[str, Any]:
             if item.get("id") == item_id.strip():
                 return {"ok": True, "data": item}
 
-        return {"ok": False, "error": f"Backlog item '{item_id}' not found."}
+        return make_failure_envelope(f"Backlog item '{item_id}' not found.")
 
     except Exception as e:
-        return {"ok": False, "error": f"Failed to verify backlog item: {str(e)}"}
+        return make_failure_envelope(f"Failed to verify backlog item: {str(e)}")
+
 
 
 # ==============================================================================

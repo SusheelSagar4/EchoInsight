@@ -179,7 +179,10 @@ Open `http://localhost:5173` in your browser.
 EchoInsight includes an autonomous AI Agent tool layer built in Python for executing product intelligence workflows.
 
 ### Design Principles:
-1. **Uniform Tool Return Envelope**: Every tool returns a structured dictionary: `{"ok": True, "data": ...}` on success or `{"ok": False, "error": "<message>"}` on failure.
+1. **Retryable Failure Envelope**: Every tool returns a uniform envelope:
+   - **Success**: `{"ok": True, "data": ...}`
+   - **Failure**: `{"ok": False, "error": "<message>", "retryable": <bool>, "retry_after_seconds": <int or None>}`
+   - *Why it exists*: When an LLM agent encounters a failure (such as an API rate limit, quota exhaustion HTTP 429, gateway 503, or network timeout), it needs structured metadata to distinguish between transient errors (which can be retried after a delay) and permanent failures (which require changing inputs or informing the user).
 2. **Self-Contained Exception Catching**: Tools catch internal errors so the calling agent loop remains fully operational.
 3. **Declarative Tool Registry**: Central `TOOL_REGISTRY` mapping tool names to functions, clear descriptions, argument metadata, and approval flags (`requires_approval=True` ONLY for write operations like `create_backlog_item`).
 4. **Resilient Local Persistence**: Engineering backlog items are assigned incremental IDs (`ENG-101`) and saved to `backend/data/backlog.json`.
@@ -197,6 +200,14 @@ EchoInsight includes an autonomous AI Agent tool layer built in Python for execu
 
 ## 📝 Agent Upgrade Changelog
 
+### [2026-10-07] - Retryable Failure Metadata & Rate Limit Handler
+- **What Changed**: Enhanced tool failure envelopes to include `retryable` (boolean) and `retry_after_seconds` (integer or None) fields parsed via `classify_error()`. Updated `test_tools.py` with an isolated retry helper `execute_with_test_retry` that waits `N+2` seconds when encountering transient errors.
+- **Files Touched**:
+  - `backend/app/agent/tools.py`
+  - `backend/test_tools.py`
+  - `README.md`
+- **Why**: Allows autonomous agent loops to intelligently react to rate limits (HTTP 429), timeouts, and service unavailability by inspecting delay metadata before scheduling retries, preventing API spamming and agent crashes.
+
 ### [2026-10-07] - Initial Agent Tool Layer Implementation
 - **What Changed**: Created the foundational tool layer for the autonomous agent workflow, including data ingestion, vector search, Gemini AI clustering, RICE ranking, PRD generation, backlog ticket creation, and verification tools. Added an isolated test script and runtime ignore rules.
 - **Files Touched**:
@@ -207,6 +218,7 @@ EchoInsight includes an autonomous AI Agent tool layer built in Python for execu
   - `.gitignore`
   - `README.md`
 - **Why**: Enables an autonomous agent to safely invoke modular tools with uniform error handling, approval safety checks, local JSON backlog persistence, and failure recovery testing capability.
+
 
 ---
 
