@@ -151,6 +151,7 @@ def cli_approval_handler(tool_name: str, args: Dict[str, Any], reason: str) -> b
 def main():
     parser = argparse.ArgumentParser(description="EchoInsight Autonomous Agent CLI Runner")
     parser.add_argument("goal", nargs="?", default="Analyze customer feedback and create prioritized backlog items", help="The natural language goal for the agent")
+    parser.add_argument("--live", action="store_true", help="Explicitly run live Gemini LLM reasoning mode (default)")
     parser.add_argument("--scripted", type=str, default=None, help="Path to JSON file containing scripted decision list for offline execution")
     parser.add_argument("--max-steps", type=int, default=10, help="Maximum execution steps allowed (default: 10)")
 
