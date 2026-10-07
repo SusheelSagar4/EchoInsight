@@ -279,6 +279,7 @@ These tests run deterministically without internet access or Gemini API quota us
 - `python backend/eval_agent.py --scripted`: Runs full stand-in evaluation across all sample goals and saves results to `backend/data/eval_results.json`.
 
 #### 2. Live Gemini LLM Tests (Manual Executions)
+- `python backend/preflight.py`: Runs 5 system diagnostic checks (API Key, live text generation with cache off, live JSON mode generation, embedding vector generation, and ChromaDB access) with automatic error classification and immediate quota exhaustion halting.
 - `python -m app.agent.cli "your goal here"`: Runs live Gemini reasoning from the terminal.
 - `python backend/eval_agent.py --live`: Runs full evaluation against live Google Gemini model.
 
@@ -305,6 +306,15 @@ These tests run deterministically without internet access or Gemini API quota us
 ---
 
 ## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - System Preflight Diagnostic Harness
+- **What Changed**:
+  - Implemented `backend/preflight.py` performing 5 live diagnostic checks: API Key presence check (never logging key text), live LLM text generation with `LLM_CACHE=0` printing configured model name, live LLM JSON mode schema check (`{"action": "finish", "final_answer": "..."}`), live embedding vector generation printing vector dimension length, and ChromaDB collection access returning item count.
+  - Integrated `classify_error()` classification to output `error_type` and `retry_after_seconds` on failures, with immediate halting upon detecting `quota_exhausted`.
+- **Files Touched**:
+  - `backend/preflight.py`
+  - `README.md`
+- **Why**: Provides a lightweight system preflight tool to verify environment setup, API keys, model configuration, JSON parsing, embedding models, and vector storage before starting agent runs.
 
 ### [2026-10-07] - Evaluation Harness, Comprehensive Agent Architecture & Documentation
 - **What Changed**:
