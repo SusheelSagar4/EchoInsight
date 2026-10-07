@@ -54,3 +54,7 @@ Thumbs.db
 chroma_data/
 backend/chroma_data/
 
+# Agent Runtime Data
+backend/data/backlog.json
+
+

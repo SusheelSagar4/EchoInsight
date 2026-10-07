@@ -174,7 +174,44 @@ Open `http://localhost:5173` in your browser.
 
 ---
 
+## 🤖 Agent Architecture
+
+EchoInsight includes an autonomous AI Agent tool layer built in Python for executing product intelligence workflows.
+
+### Design Principles:
+1. **Uniform Tool Return Envelope**: Every tool returns a structured dictionary: `{"ok": True, "data": ...}` on success or `{"ok": False, "error": "<message>"}` on failure.
+2. **Self-Contained Exception Catching**: Tools catch internal errors so the calling agent loop remains fully operational.
+3. **Declarative Tool Registry**: Central `TOOL_REGISTRY` mapping tool names to functions, clear descriptions, argument metadata, and approval flags (`requires_approval=True` ONLY for write operations like `create_backlog_item`).
+4. **Resilient Local Persistence**: Engineering backlog items are assigned incremental IDs (`ENG-101`) and saved to `backend/data/backlog.json`.
+
+### Available Tools:
+- `get_customer_feedback()`: Reads customer feedback lines from CSV.
+- `search_memory(query, top_k)`: Queries ChromaDB vector memory for semantic matches.
+- `cluster_feedback_tool(feedback_lines)`: Calls Gemini AI to group lines into RICE-prioritized clusters.
+- `rank_clusters(clusters)`: Sorts cluster dicts by RICE score descending.
+- `generate_prd_tool(cluster)`: Generates a PRD object from a cluster dict.
+- `create_backlog_item(title, description, priority)`: Appends an engineering ticket to `backlog.json` (requires approval). Includes `SIMULATE_FAILURES` flag for failure recovery testing.
+- `verify_backlog_item(item_id)`: Confirms a ticket exists in `backlog.json`.
+
+---
+
+## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - Initial Agent Tool Layer Implementation
+- **What Changed**: Created the foundational tool layer for the autonomous agent workflow, including data ingestion, vector search, Gemini AI clustering, RICE ranking, PRD generation, backlog ticket creation, and verification tools. Added an isolated test script and runtime ignore rules.
+- **Files Touched**:
+  - `backend/data/sample_feedback.csv`
+  - `backend/app/agent/__init__.py`
+  - `backend/app/agent/tools.py`
+  - `backend/test_tools.py`
+  - `.gitignore`
+  - `README.md`
+- **Why**: Enables an autonomous agent to safely invoke modular tools with uniform error handling, approval safety checks, local JSON backlog persistence, and failure recovery testing capability.
+
+---
+
 ## 📄 License & Attribution
 
 Built with ❤️ for Product Managers by **Susheel Sagar**.
 Detailed technical documentation and branch change logs can be found in [`PROJECT_ARCHITECTURE.md`](file:///c:/Bunty/IIT%20BBS/PM/EchoInsight/PROJECT_ARCHITECTURE.md).
+
