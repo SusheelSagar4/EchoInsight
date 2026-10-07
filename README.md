@@ -197,16 +197,100 @@ EchoInsight includes an autonomous AI Agent framework built in Python for execut
    - Abstract `Planner` interface (`decide_next_action(state)`).
    - Decision schema: `{"action": "tool" | "finish", "tool": str, "args": dict, "reason": str, "final_answer": str}`.
    - `ScriptedPlanner`: Replays pre-scripted decision lists for deterministic, zero-API unit testing. Resolves `$LAST_CREATED_ID` dynamically.
-   - `GeminiPlanner`: Constructs concise prompts with `TOOL_REGISTRY` metadata and execution history, invoking `llm_client.generate_text(prompt, json_mode=True)`.
-4. **Core Agent Loop & Guard Rules (`backend/app/agent/loop.py`)**:
-   - `run_agent(goal, planner, approval_handler, max_steps, sleep_fn, event_callback, run_id)`: Manages perception-decision-execution cycle.
-   - **Verification Guard**: Refuses a `"finish"` decision if any write tool (`create_backlog_item`) succeeded but has not been verified yet with `verify_backlog_item`.
-   - **Approval Guard**: Invokes `approval_handler` before executing tools requiring approval (`requires_approval=True`). Records rejections without executing the write tool.
-   - **Retry & Quota Rules**: Retries transient errors (`retryable=True`) up to 2 times using `sleep_fn(wait_sec)`; halts immediately on `error_type == "quota_exhausted"`.
-   - **Run Persistence**: Saves complete run payload and event trace to `backend/data/runs/<run_id>.json`.
-   - **Statuses**: `completed` | `waiting_approval` | `approval_timeout` | `halted_quota` | `rejected_by_human` | `max_steps_reached` | `invalid_planner_output` | `failed`.
-5. **Error Classification & Retry Metadata**: Failure envelopes return:
-   `{"ok": False, "error": "<msg>", "retryable": <bool>, "error_type": "<type>", "retry_after_seconds": <int|None>}`.
+   - `GeminiPlanner`: Constructs concise prompts with `TOOL_REGISTRY` metadata and execution history, invoking `llm_client.generate_text(prompt, json_mode=True)`. Handles three goal types (Full PRD + Backlog, Targeted Topic Backlog, Read-Only Query).
+
+---
+
+### 🔄 How the Agent Works
+
+The agent operates in an iterative cyclic loop (`backend/app/agent/loop.py`):
+
+```text
+         ┌─────────────────────────────────────────────────────────┐
+         │                    1. PERCEIVE                          │
+         │  Observe current state, goal, and execution history     │
+         └──────────────────────────┬──────────────────────────────┘
+                                    │
+                                    ▼
+         ┌─────────────────────────────────────────────────────────┐
+         │                    2. DECIDE                            │
+         │  Planner (GeminiPlanner or ScriptedPlanner) decides:    │
+         │  {"action": "tool" | "finish", "tool", "args", ...}     │
+         └──────────────────────────┬──────────────────────────────┘
+                                    │
+                                    ▼
+         ┌─────────────────────────────────────────────────────────┐
+         │              3. VALIDATE & APPROVE                      │
+         │  - Verification Guard check on "finish"                 │
+         │  - Approval Guard: prompt human if write tool requested │
+         └──────────────────────────┬──────────────────────────────┘
+                                    │
+                                    ▼
+         ┌─────────────────────────────────────────────────────────┐
+         │                    4. EXECUTE                           │
+         │  Run tool, handle retries on transient errors/timeouts  │
+         └──────────────────────────┬──────────────────────────────┘
+                                    │
+                                    ▼
+         ┌─────────────────────────────────────────────────────────┐
+         │              5. RECORD & PERSIST                        │
+         │  Append trace event & save run to data/runs/<id>.json   │
+         └─────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 🛡️ Failure Recovery and Verification
+
+The agent loop enforces strict safety and resilience rules:
+
+1. **Transient Error Retries**: Captures failure envelopes (`retryable=True`), parses duration strings (e.g., `7h45m38.1s`, `44.45s`, `seconds: X`), and retries up to 2 times (sleeping up to 60s).
+2. **Quota Exhaustion Halting**: Immediately halts execution with status `"halted_quota"` if `error_type == "quota_exhausted"`, avoiding wasteful API retries when daily limits are reached.
+3. **Verification Guard**: If a write tool (`create_backlog_item`) succeeded during the run, the loop refuses a `"finish"` decision until `verify_backlog_item(item_id)` has been executed to verify persistence.
+4. **Consecutive Invalid Decision Protection**: If the planner outputs unknown tools (e.g. `quantum_teleport_fix`) or invalid JSON 2 times consecutively, the loop halts gracefully with status `"invalid_planner_output"`.
+5. **Step Cap Enforcement**: Halts with status `"max_steps_reached"` if step count exceeds the cap (default: 10).
+6. **History Truncation**: Large tool output text is truncated to 400 characters in the planner history while preserving complete raw output in the event trace.
+
+---
+
+### ✋ Human Approval
+
+Write tools (`requires_approval=True`, such as `create_backlog_item`) are gated by a human supervisor approval step:
+
+- **CLI Approval (`backend/app/agent/cli.py`)**: Prompts interactive `(y/n)` input in terminal before proceeding.
+- **REST API Approval (`backend/app/routers/agent.py`)**:
+  - Pauses background execution thread via `threading.Event`.
+  - Sets run status to `"waiting_approval"` and populates `pending_approval` (`{tool, args, reason}`).
+  - Resumes execution when user posts `{"approved": true}` or `{"approved": false}` to `POST /agent/runs/{id}/approve`.
+- **10-Minute Timeout Guard**: If no approval response is received within 10 minutes (600 seconds, or custom `approval_timeout_seconds`), the run automatically times out with status `"approval_timeout"`.
+
+---
+
+### 🧪 Testing
+
+Testing is strictly divided into **Offline Stand-In Tests** and **Live Gemini LLM Tests**:
+
+#### 1. Offline Stand-In Tests (Zero API Calls)
+These tests run deterministically without internet access or Gemini API quota usage:
+- `python backend/test_tools.py`: Tests tool envelope schema, error classification, and duration parsing.
+- `python backend/test_agent_loop.py`: Tests 7 core loop mechanics scenarios using `ScriptedPlanner`.
+- `python backend/test_agent_api.py`: Tests REST API pause/resume, approval rejection, and timeout using `TestClient` and `ScriptedPlanner`.
+- `python backend/test_goals.py`: Tests multiple goal types (`full_pipeline`, `topic_backlog`, `read_only_query`, `impossible_goal`) and `get_feedback_trend`.
+- `python backend/eval_agent.py --scripted`: Runs full stand-in evaluation across all sample goals and saves results to `backend/data/eval_results.json`.
+
+#### 2. Live Gemini LLM Tests (Manual Executions)
+- `python -m app.agent.cli "your goal here"`: Runs live Gemini reasoning from the terminal.
+- `python backend/eval_agent.py --live`: Runs full evaluation against live Google Gemini model.
+
+---
+
+### ⚠️ Known Limitations & Development Caching
+
+- **Development Caching Note**: Local dev caching (`LLM_CACHE=1` storing prompt hashes in `backend/data/llm_cache/`) is intended for local offline development only to preserve API quota during code edits. Live production web app deployments and CLI runs perform live Gemini calls.
+- **Free-Tier API Quota Limits**: Google Gemini 3.6 Flash free-tier limits (15 RPM / 1500 RPD) may trigger rate-limit retries or quota exhaustion halts under heavy continuous usage.
+- **Vector Memory Timestamp Metadata**: `get_feedback_trend` relies on `created_at` UTC ISO timestamp metadata in ChromaDB. Legacy items created before timestamp support return an honest `"insufficient_data"` envelope rather than invented numbers.
+
+---
 
 ### Available Tools:
 - `get_customer_feedback()`: Reads customer feedback lines from CSV.
@@ -221,6 +305,17 @@ EchoInsight includes an autonomous AI Agent framework built in Python for execut
 ---
 
 ## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - Evaluation Harness, Comprehensive Agent Architecture & Documentation
+- **What Changed**:
+  - Implemented `backend/eval_agent.py` supporting `--scripted` (offline stand-in) and `--live` (live Gemini) evaluation modes. Saves structured metrics (`status`, `steps_used`, `retries`, `verification_happened`, `status_matched`) to `backend/data/eval_results.json`.
+  - Added comprehensive `README.md` sections detailing **How the Agent Works** (ASCII loop diagram), **Failure Recovery and Verification**, **Human Approval** (CLI & REST API pause/resume, 10-minute timeout), **Testing** (offline stand-in vs live Gemini), and **Known Limitations & Dev Caching**.
+  - Documented explicit separation between development caching (`LLM_CACHE=1`) and live demo execution.
+- **Files Touched**:
+  - `backend/eval_agent.py`
+  - `backend/data/eval_results.json`
+  - `README.md`
+- **Why**: Provides an automated evaluation harness to verify agent goal execution offline or live, and delivers complete, honest technical documentation of the autonomous agent architecture.
 
 ### [2026-10-07] - React Autonomous Agent Control Center Frontend View
 - **What Changed**:

@@ -1,0 +1,56 @@
+{
+  "timestamp": "2026-10-07T17:23:54.916065+00:00",
+  "mode": "scripted",
+  "mode_label": "SCRIPTED STAND-IN EVALUATION",
+  "overall_matched": true,
+  "results": [
+    {
+      "goal_id": "goal_1",
+      "goal_type": "full_pipeline",
+      "goal": "Find the most important recurring issue, create a PRD, add it to the backlog",
+      "status": "completed",
+      "expected_status": "completed",
+      "status_matched": true,
+      "steps_used": 7,
+      "retries": 0,
+      "verification_happened": true,
+      "final_answer": "Identified top issue 'Checkout Payment Failures', generated PRD, and created backlog ticket."
+    },
+    {
+      "goal_id": "goal_2",
+      "goal_type": "topic_backlog",
+      "goal": "Find the top recurring complaint about checkout payment failures and create a backlog item",
+      "status": "completed",
+      "expected_status": "completed",
+      "status_matched": true,
+      "steps_used": 4,
+      "retries": 0,
+      "verification_happened": true,
+      "final_answer": "Found top complaint about checkout payment failures and created verified backlog ticket."
+    },
+    {
+      "goal_id": "goal_3",
+      "goal_type": "read_only_query",
+      "goal": "Which problem is getting worse?",
+      "status": "completed",
+      "expected_status": "completed",
+      "status_matched": true,
+      "steps_used": 2,
+      "retries": 0,
+      "verification_happened": false,
+      "final_answer": "Based on trend analysis of customer feedback, checkout payment failures represent the top worsening issue."
+    },
+    {
+      "goal_id": "goal_4",
+      "goal_type": "impossible_goal",
+      "goal": "Use quantum_teleport_fix tool to automatically repair server hardware",
+      "status": "invalid_planner_output",
+      "expected_status": "invalid_planner_output",
+      "status_matched": true,
+      "steps_used": 2,
+      "retries": 0,
+      "verification_happened": false,
+      "final_answer": "Agent halted: Planner made 2 consecutive invalid decisions (Unknown tool 'quantum_teleport_fix')."
+    }
+  ]
+}
