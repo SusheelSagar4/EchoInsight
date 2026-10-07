@@ -289,7 +289,22 @@ These tests run deterministically without internet access or Gemini API quota us
 ### ⚠️ Known Limitations & Development Caching
 
 - **Development Caching Note**: Local dev caching (`LLM_CACHE=1` storing prompt hashes in `backend/data/llm_cache/`) is intended for local offline development only to preserve API quota during code edits. Live production web app deployments and CLI runs perform live Gemini calls.
-- **Free-Tier API Quota Limits**: Google Gemini 3.6 Flash free-tier limits (15 RPM / 1500 RPD) may trigger rate-limit retries or quota exhaustion halts under heavy continuous usage.
+- **Free-Tier API Quota Limits & Verified Quota-Halt Behavior**:
+  Google Gemini 3.6 Flash free-tier limits (15 RPM / 1500 RPD) trigger rate-limit retries or immediate `halted_quota` halts when daily limits are reached.
+
+  *Verified Live Quota-Halt Trace Output (`run_abfb3e2b02`)*:
+  ```text
+  [2026-10-07 18:08:23] 🎯 [GOAL RECEIVED] Goal: "Find the most important recurring issue from the feedback, create a PRD for it, and add it to the backlog."
+  [2026-10-07 18:08:23] 🧠 [Step 1] [DECISION] Action: 'api_error' | Tool: '' | Reason: "LLM API Call Exception: 429 You exceeded your current quota..."
+  [2026-10-07 18:08:23] 🛑 [HALTED] Run halted. Reason: Agent halted due to LLM quota exhaustion: 429 You exceeded your current quota...
+  ======================================================================
+   🏁 RUN EXECUTION COMPLETE
+      - Run ID: run_abfb3e2b02
+      - Final Status: halted_quota
+      - Total Steps: 1 (0 repair calls wasted)
+      - Final Answer: Agent halted due to LLM quota exhaustion...
+  ======================================================================
+  ```
 - **Vector Memory Timestamp Metadata**: `get_feedback_trend` relies on `created_at` UTC ISO timestamp metadata in ChromaDB. Legacy items created before timestamp support return an honest `"insufficient_data"` envelope rather than invented numbers.
 
 ---
@@ -307,6 +322,16 @@ These tests run deterministically without internet access or Gemini API quota us
 ---
 
 ## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - Verified Live Quota-Halt Trace & CLI Live Mode Support
+- **What Changed**:
+  - Added explicit `--live` flag support to `app.agent.cli` runner.
+  - Documented verified live quota-halt trace behavior (`run_abfb3e2b02`) demonstrating immediate Step 1 `halted_quota` classification with 0 repair calls wasted upon encountering HTTP 429 Gemini API quota limits.
+  - Verified offline interactive human approval flows (`approved=True`, `approved=False`, `approval_timeout`) using `test_agent_api.py`.
+- **Files Touched**:
+  - `backend/app/agent/cli.py`
+  - `README.md`
+- **Why**: Documents verified live agent behavior under free-tier quota limits and provides CLI `--live` flag support for explicit live Gemini model execution.
 
 ### [2026-10-07] - Planner Error Classification & Diagnosability
 - **What Changed**:
