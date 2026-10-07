@@ -1,7 +1,7 @@
 """
 backend/app/agent/loop.py
 
-Core Agent Loop for EchoInsight.
+Core Agent Loop for EchoInsight with loop safety, budget caps, and trace metrics.
 
 ==============================================================================
 WHAT IS THE AGENT LOOP? (FOR BEGINNERS)
@@ -12,7 +12,7 @@ An AI agent works in a cyclic loop:
 3. VALIDATE & APPROVE: Check tool registry & request human approval if required.
 4. EXECUTE: Call tool, handling retries for temporary rate limits/timeouts.
 5. RECORD & PERSIST: Log trace events and update execution history.
-6. REPEAT until task is complete or step cap is reached.
+6. REPEAT until task is complete, step cap is reached, or safety bounds are hit.
 ==============================================================================
 """
 
@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 import json
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import uuid
 
 from .planner import Planner
@@ -67,6 +67,7 @@ def run_agent(
     planner: Planner,
     approval_handler: Optional[Callable[[str, Dict[str, Any], str], bool]] = None,
     max_steps: int = 10,
+    llm_budget: int = 12,
     sleep_fn: Callable[[float], None] = time.sleep,
     event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     run_id: Optional[str] = None
@@ -78,7 +79,8 @@ def run_agent(
         goal (str): The natural language objective for the agent.
         planner (Planner): The planner engine instance (ScriptedPlanner or GeminiPlanner).
         approval_handler (Callable): Optional function to request human approval for write tools.
-        max_steps (int): Maximum number of execution steps before halting.
+        max_steps (int): Maximum number of execution steps before halting (default: 10).
+        llm_budget (int): Maximum total LLM calls allowed per run (default: 12).
         sleep_fn (Callable): Function used for sleeping during retries (overridden in tests).
         event_callback (Callable): Optional callback function invoked on each new trace event.
 
@@ -86,9 +88,12 @@ def run_agent(
         Dict: {
             "run_id": str,
             "status": "completed" | "halted_quota" | "rejected_by_human" |
-                      "max_steps_reached" | "invalid_planner_output" | "failed" | "approval_timeout",
+                      "max_steps_reached" | "invalid_planner_output" | "stuck_loop" |
+                      "budget_exhausted" | "failed" | "approval_timeout",
             "final_answer": str,
             "steps": int,
+            "llm_calls": int,
+            "retries": int,
             "trace": list[dict]
         }
     """
@@ -103,6 +108,14 @@ def run_agent(
     consecutive_invalid: int = 0
     step_count: int = 0
 
+    # LLM Call & Retry Counters
+    llm_calls: int = 0
+    total_retries: int = 0
+
+    # Stuck Loop Detection (Identical Tool + Args repeated 3 times)
+    last_tool_call: Optional[Tuple[str, str]] = None
+    consecutive_identical_calls: int = 0
+
     def record_event(event_type: str, details: Dict[str, Any]) -> None:
         evt = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -116,22 +129,49 @@ def run_agent(
             except Exception:
                 pass
 
+    def notify_extra_llm_call() -> None:
+        nonlocal llm_calls
+        llm_calls += 1
 
     # Record initial goal
     record_event("goal_received", {"goal": goal})
     history.append({"role": "user", "content": f"Task Goal: {goal}"})
 
     while step_count < max_steps:
+        # Check LLM Call Budget limit
+        if llm_calls >= llm_budget:
+            status = "budget_exhausted"
+            ans = f"Agent halted: Exceeded total LLM call budget ({llm_budget} calls)."
+            record_event("halted", {
+                "status": status,
+                "reason": ans,
+                "llm_calls": llm_calls,
+                "retries": total_retries
+            })
+            result_payload = {
+                "run_id": run_id,
+                "status": status,
+                "final_answer": ans,
+                "steps": step_count,
+                "llm_calls": llm_calls,
+                "retries": total_retries,
+                "trace": trace
+            }
+            save_run(run_id, result_payload)
+            return result_payload
+
         state = {
             "goal": goal,
             "history": history,
             "step_count": step_count,
+            "max_steps": max_steps,
             "last_created_id": last_created_id,
-            "created_unverified_items": sorted(list(created_unverified_items))
+            "created_unverified_items": sorted(list(created_unverified_items)),
+            "llm_call_notifier": notify_extra_llm_call
         }
 
-
         # Step 1: Ask Planner for next action decision
+        llm_calls += 1
         decision = planner.decide_next_action(state)
         action = decision.get("action", "")
         tool_name = decision.get("tool", "")
@@ -147,7 +187,6 @@ def run_agent(
         # Step 2A: Handle "finish" action
         if action == "finish":
             # Verification Guard Enforcement:
-            # Check if any created backlog items have not been verified yet
             if created_unverified_items:
                 unverified_list = sorted(list(created_unverified_items))
                 record_event("verification", {
@@ -170,7 +209,9 @@ def run_agent(
             record_event("finish", {
                 "step": step_count + 1,
                 "final_answer": ans,
-                "status": status
+                "status": status,
+                "llm_calls": llm_calls,
+                "retries": total_retries
             })
 
             result_payload = {
@@ -178,6 +219,8 @@ def run_agent(
                 "status": status,
                 "final_answer": ans,
                 "steps": step_count + 1,
+                "llm_calls": llm_calls,
+                "retries": total_retries,
                 "trace": trace
             }
             save_run(run_id, result_payload)
@@ -185,7 +228,7 @@ def run_agent(
 
         # Step 2B: Handle "tool" action
         if action == "tool":
-            # Validate tool_name against TOOL_REGISTRY
+            # Pre-execution Registry & Tool Name Validation
             if not tool_name or tool_name not in TOOL_REGISTRY:
                 consecutive_invalid += 1
                 if consecutive_invalid >= 2:
@@ -197,6 +240,8 @@ def run_agent(
                         "status": status,
                         "final_answer": ans,
                         "steps": step_count + 1,
+                        "llm_calls": llm_calls,
+                        "retries": total_retries,
                         "trace": trace
                     }
                     save_run(run_id, result_payload)
@@ -206,6 +251,38 @@ def run_agent(
                 history.append({"role": "user", "content": obs_invalid})
                 step_count += 1
                 continue
+
+            # Check for Stuck Loop (Identical tool call + identical args repeated 3 times)
+            current_call_tuple = (tool_name, json.dumps(args, sort_keys=True))
+            if current_call_tuple == last_tool_call:
+                consecutive_identical_calls += 1
+            else:
+                last_tool_call = current_call_tuple
+                consecutive_identical_calls = 1
+
+            if consecutive_identical_calls >= 3:
+                status = "stuck_loop"
+                ans = (
+                    f"Agent halted: Detected stuck loop with repeated identical tool call '{tool_name}' "
+                    f"and args {json.dumps(args)} 3 times consecutively."
+                )
+                record_event("halted", {
+                    "status": status,
+                    "reason": ans,
+                    "llm_calls": llm_calls,
+                    "retries": total_retries
+                })
+                result_payload = {
+                    "run_id": run_id,
+                    "status": status,
+                    "final_answer": ans,
+                    "steps": step_count + 1,
+                    "llm_calls": llm_calls,
+                    "retries": total_retries,
+                    "trace": trace
+                }
+                save_run(run_id, result_payload)
+                return result_payload
 
             # Valid tool decision: reset consecutive_invalid
             consecutive_invalid = 0
@@ -233,6 +310,8 @@ def run_agent(
                             "status": status,
                             "final_answer": ans,
                             "steps": step_count + 1,
+                            "llm_calls": llm_calls,
+                            "retries": total_retries,
                             "trace": trace
                         }
                         save_run(run_id, result_payload)
@@ -309,12 +388,15 @@ def run_agent(
                         "status": status,
                         "final_answer": ans,
                         "steps": step_count + 1,
+                        "llm_calls": llm_calls,
+                        "retries": total_retries,
                         "trace": trace
                     }
                     save_run(run_id, result_payload)
                     return result_payload
 
                 if tool_res.get("retryable") and attempt <= max_retries:
+                    total_retries += 1
                     raw_wait = tool_res.get("retry_after_seconds") or 30
                     wait_sec = min(raw_wait, 60)
                     record_event("retry", {
@@ -330,7 +412,6 @@ def run_agent(
 
             # Update tracking & history after tool call
             if tool_res and tool_res.get("ok"):
-                # Track created write items and verifications
                 if tool_name == "create_backlog_item":
                     item_data = tool_res.get("data", {})
                     if isinstance(item_data, dict) and item_data.get("id"):
@@ -373,6 +454,8 @@ def run_agent(
                 "status": status,
                 "final_answer": ans,
                 "steps": step_count + 1,
+                "llm_calls": llm_calls,
+                "retries": total_retries,
                 "trace": trace
             }
             save_run(run_id, result_payload)
@@ -391,6 +474,8 @@ def run_agent(
         "status": status,
         "final_answer": ans,
         "steps": step_count,
+        "llm_calls": llm_calls,
+        "retries": total_retries,
         "trace": trace
     }
     save_run(run_id, result_payload)

@@ -18,7 +18,7 @@ Modes:
    Uses GeminiPlanner and calls live Google Gemini API to evaluate real LLM reasoning.
 
 Outputs:
-- Formatted evaluation table printed to terminal.
+- Formatted evaluation table printed to terminal showing mode and LLM calls.
 - Complete evaluation results saved to backend/data/eval_results.json.
 ==============================================================================
 """
@@ -111,10 +111,10 @@ def run_evaluation(mode: str) -> bool:
     is_live = (mode == "live")
     mode_label = "LIVE GEMINI LLM EVALUATION" if is_live else "SCRIPTED STAND-IN EVALUATION"
 
-    print("=" * 80)
+    print("=" * 95)
     print(f" {BOLD}EchoInsight Autonomous Agent Evaluation Harness{RESET}")
     print(f" {CYAN}MODE: {mode_label}{RESET}")
-    print("=" * 80)
+    print("=" * 95)
 
     if not SAMPLE_GOALS_PATH.exists():
         print(f"{RED}Error: sample_goals.json not found at {SAMPLE_GOALS_PATH}{RESET}")
@@ -161,10 +161,11 @@ def run_evaluation(mode: str) -> bool:
 
         status = result.get("status")
         steps = result.get("steps", 0)
+        llm_calls = result.get("llm_calls", 0)
         trace = result.get("trace", [])
 
         # Count retries
-        retries_count = sum(1 for evt in trace if evt.get("event_type") == "retry")
+        retries_count = result.get("retries", sum(1 for evt in trace if evt.get("event_type") == "retry"))
 
         # Check if verification occurred
         verification_happened = any(
@@ -185,6 +186,7 @@ def run_evaluation(mode: str) -> bool:
             "expected_status": expected_status,
             "status_matched": status_matched,
             "steps_used": steps,
+            "llm_calls": llm_calls,
             "retries": retries_count,
             "verification_happened": verification_happened,
             "final_answer": result.get("final_answer", "")
@@ -193,21 +195,21 @@ def run_evaluation(mode: str) -> bool:
 
         match_str = f"{GREEN}MATCH{RESET}" if status_matched else f"{RED}MISMATCH{RESET}"
         print(f"  --> Status: {status} (Expected: {expected_status}) [{match_str}]")
-        print(f"      Steps: {steps} | Retries: {retries_count} | Verified: {verification_happened}")
+        print(f"      Steps: {steps} | LLM Calls: {llm_calls} | Retries: {retries_count} | Verified: {verification_happened}")
 
     # Output Evaluation Table
-    print("\n" + "=" * 90)
+    print("\n" + "=" * 105)
     print(f" {BOLD}EVALUATION RESULTS SUMMARY ({mode_label}){RESET}")
-    print("=" * 90)
-    print(f"{'Goal ID':<10} | {'Type':<16} | {'Status':<22} | {'Expected':<22} | {'Match':<7} | {'Steps':<5} | {'Verified':<8}")
-    print("-" * 90)
+    print("=" * 105)
+    print(f"{'Goal ID':<10} | {'Type':<16} | {'Status':<22} | {'Expected':<22} | {'Match':<7} | {'Steps':<5} | {'LLM Calls':<9} | {'Verified':<8}")
+    print("-" * 105)
 
     for r in eval_records:
         match_symbol = f"{GREEN}YES{RESET}" if r["status_matched"] else f"{RED}NO{RESET}"
         ver_symbol = "YES" if r["verification_happened"] else "NO"
-        print(f"{r['goal_id']:<10} | {r['goal_type']:<16} | {r['status']:<22} | {r['expected_status']:<22} | {match_symbol:<16} | {r['steps_used']:<5} | {ver_symbol:<8}")
+        print(f"{r['goal_id']:<10} | {r['goal_type']:<16} | {r['status']:<22} | {r['expected_status']:<22} | {match_symbol:<16} | {r['steps_used']:<5} | {r['llm_calls']:<9} | {ver_symbol:<8}")
 
-    print("=" * 90)
+    print("=" * 105)
 
     # Save to backend/data/eval_results.json
     eval_payload = {

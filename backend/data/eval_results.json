@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-07T17:23:54.916065+00:00",
+  "timestamp": "2026-10-07T17:43:28.555805+00:00",
   "mode": "scripted",
   "mode_label": "SCRIPTED STAND-IN EVALUATION",
   "overall_matched": true,
@@ -12,6 +12,7 @@
       "expected_status": "completed",
       "status_matched": true,
       "steps_used": 7,
+      "llm_calls": 7,
       "retries": 0,
       "verification_happened": true,
       "final_answer": "Identified top issue 'Checkout Payment Failures', generated PRD, and created backlog ticket."
@@ -24,6 +25,7 @@
       "expected_status": "completed",
       "status_matched": true,
       "steps_used": 4,
+      "llm_calls": 4,
       "retries": 0,
       "verification_happened": true,
       "final_answer": "Found top complaint about checkout payment failures and created verified backlog ticket."
@@ -36,6 +38,7 @@
       "expected_status": "completed",
       "status_matched": true,
       "steps_used": 2,
+      "llm_calls": 2,
       "retries": 0,
       "verification_happened": false,
       "final_answer": "Based on trend analysis of customer feedback, checkout payment failures represent the top worsening issue."
@@ -48,6 +51,7 @@
       "expected_status": "invalid_planner_output",
       "status_matched": true,
       "steps_used": 2,
+      "llm_calls": 2,
       "retries": 0,
       "verification_happened": false,
       "final_answer": "Agent halted: Planner made 2 consecutive invalid decisions (Unknown tool 'quantum_teleport_fix')."

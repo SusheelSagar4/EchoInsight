@@ -3,14 +3,95 @@ backend/app/agent/planner.py
 
 Planner layer for the EchoInsight autonomous agent.
 Provides a swappable Planner interface, a ScriptedPlanner for deterministic testing,
-and a GeminiPlanner for LLM-driven decision making.
+and a GeminiPlanner for LLM-driven decision making with JSON robustness, repair attempts,
+and prompt hygiene.
 """
 
 from abc import ABC, abstractmethod
 import json
+import re
 from typing import Any, Dict, List, Optional
 from .tools import TOOL_REGISTRY
 from ..services.llm_client import generate_text
+
+
+def extract_json_from_text(text: str) -> str:
+    """
+    Strips markdown code fences (```json ... ```) and extracts the first JSON object
+    from text if there is leading or trailing prose.
+    """
+    if not text or not isinstance(text, str):
+        return ""
+
+    cleaned = text.strip()
+
+    # 1. Strip markdown code fences if present
+    if "```" in cleaned:
+        fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", cleaned, re.DOTALL | re.IGNORECASE)
+        if fence_match:
+            cleaned = fence_match.group(1).strip()
+        else:
+            lines = cleaned.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+
+    # 2. Extract first JSON object {...} if surrounded by non-JSON prose
+    if not (cleaned.startswith("{") and cleaned.endswith("}")):
+        json_obj_match = re.search(r"(\{.*\})", cleaned, re.DOTALL)
+        if json_obj_match:
+            cleaned = json_obj_match.group(1).strip()
+
+    return cleaned
+
+
+def parse_and_validate_decision(raw_text: str) -> Dict[str, Any]:
+    """
+    Extracts, parses, and schema-validates a decision JSON string against TOOL_REGISTRY.
+    Raises ValueError if parsing or validation fails.
+    """
+    extracted = extract_json_from_text(raw_text)
+    if not extracted:
+        raise ValueError("No JSON object found in response text.")
+
+    try:
+        decision = json.loads(extracted)
+    except Exception as parse_err:
+        raise ValueError(f"JSON syntax error: {str(parse_err)}")
+
+    if not isinstance(decision, dict):
+        raise ValueError("Decision output is not a JSON object dictionary.")
+
+    action = decision.get("action")
+    if action not in ["tool", "finish", "invalid"]:
+        raise ValueError(f"Invalid 'action' field: '{action}'. Must be 'tool' or 'finish'.")
+
+    if action == "tool":
+        tool_name = decision.get("tool", "")
+        if not tool_name or not isinstance(tool_name, str):
+            raise ValueError("Action 'tool' requires a non-empty string 'tool' field.")
+
+        if tool_name not in TOOL_REGISTRY:
+            raise ValueError(
+                f"Tool '{tool_name}' is not registered in TOOL_REGISTRY. Valid tools: {list(TOOL_REGISTRY.keys())}"
+            )
+
+        args = decision.get("args")
+        if args is not None and not isinstance(args, dict):
+            raise ValueError("Tool 'args' field must be a dictionary.")
+
+    reason = decision.get("reason", "")
+    final_answer = decision.get("final_answer", "")
+
+    return {
+        "action": action,
+        "tool": str(decision.get("tool", "")),
+        "args": decision.get("args", {}) if isinstance(decision.get("args"), dict) else {},
+        "reason": str(reason),
+        "final_answer": str(final_answer)
+    }
 
 
 class Planner(ABC):
@@ -25,7 +106,7 @@ class Planner(ABC):
         """
         Given the current state dictionary, returns a decision dictionary matching:
         {
-            "action": "tool" | "finish",
+            "action": "tool" | "finish" | "invalid",
             "tool": str,
             "args": dict,
             "reason": str,
@@ -68,13 +149,15 @@ class ScriptedPlanner(Planner):
 class GeminiPlanner(Planner):
     """
     LLM-driven Planner powered by Google Gemini API via llm_client.generate_text.
-    Constructs a concise prompt containing available tools, task goal, and step history,
-    then parses and validates the model's JSON decision.
+    Includes Markdown fence stripping, regex extraction, 1-attempt JSON repair on error,
+    pre-execution registry validation, and prompt history summarization.
     """
 
     def decide_next_action(self, state: Dict[str, Any]) -> Dict[str, Any]:
         goal = state.get("goal", "")
         history = state.get("history", [])
+        step_count = state.get("step_count", 0)
+        max_steps = state.get("max_steps", 10)
 
         # Format tool descriptions from TOOL_REGISTRY
         tool_descriptions = []
@@ -84,17 +167,29 @@ class GeminiPlanner(Planner):
             tool_descriptions.append(f"- {name}({args_desc}): {meta.get('description')}{approval_str}")
         tools_str = "\n".join(tool_descriptions)
 
-        # Format concise history string for the LLM
+        # Prompt Hygiene: Summarize history (keep last 3 in full, one short line for older)
         history_lines = []
-        for item in history:
+        num_items = len(history)
+        full_start_idx = max(0, num_items - 3)
+
+        for i, item in enumerate(history):
             role = item.get("role", "system")
             content = item.get("content", "")
-            history_lines.append(f"[{role}]: {content}")
+
+            if i < full_start_idx:
+                short_content = content.replace("\n", " ")
+                if len(short_content) > 100:
+                    short_content = short_content[:100] + "..."
+                history_lines.append(f"[{role}] (Step {i+1}): {short_content}")
+            else:
+                history_lines.append(f"[{role}] (Step {i+1}): {content}")
+
         history_str = "\n".join(history_lines) if history_lines else "None"
 
         prompt = f"""
 You are an autonomous AI Product Manager Agent for EchoInsight.
 Goal: {goal}
+Current Progress: Step {step_count + 1} of {max_steps}
 
 Available Tools:
 {tools_str}
@@ -102,17 +197,20 @@ Available Tools:
 Execution History:
 {history_str}
 
-Instructions:
-1. Identify the goal type and determine the appropriate tool sequence:
+Instructions & Rules:
+1. Goal Types & Tool Sequence:
    a) Full PRD & Backlog Pipeline ("Find most important recurring issue, create a PRD, add to backlog"):
       get_customer_feedback -> cluster_feedback_tool -> rank_clusters -> generate_prd_tool -> create_backlog_item -> verify_backlog_item -> finish.
+      CRITICAL RULE: Never call a write tool (create_backlog_item) before rank_clusters and generate_prd_tool have succeeded!
    b) Targeted Topic Backlog Item ("Find top recurring complaint about <topic> and create backlog item"):
-      search_memory/get_customer_feedback -> create_backlog_item -> verify_backlog_item -> finish.
-   c) Read-only Analytical Query ("Which problem is getting worse?", trend queries, evidence questions):
-      Use read-only tools like get_feedback_trend, get_customer_feedback, or search_memory to gather evidence. Do NOT call write tools like create_backlog_item. Once evidence is gathered, stop immediately by selecting action "finish" and providing a comprehensive evidence-backed answer in final_answer.
-2. CRITICAL RULE: If the user's goal does NOT explicitly request writing a backlog item or creating a ticket, do NOT call create_backlog_item or any write tools. Gather data and select action "finish".
-3. Select ONE tool to call OR choose action "finish" if the goal is satisfied.
-4. Return ONLY raw valid JSON matching this exact schema:
+      search_memory or get_customer_feedback -> create_backlog_item -> verify_backlog_item -> finish.
+   c) Read-Only Analytical Query ("Which problem is getting worse?", trend queries, evidence questions):
+      Use read-only tools like get_feedback_trend, get_customer_feedback, or search_memory. Do NOT call write tools. Select action "finish" once evidence is gathered.
+2. CRITICAL RULE: Always call verify_backlog_item(item_id) immediately after create_backlog_item creates a ticket.
+3. CRITICAL RULE: Finish ONLY with evidence gathered from previous tool results.
+4. CRITICAL RULE: If no tool exists for the goal or a tool fails repeatedly, finish with a clear status explanation instead of inventing non-existent tools.
+5. Select ONE tool to call OR choose action "finish" if the goal is satisfied.
+6. Return ONLY raw valid JSON matching this exact schema:
 {{
   "action": "tool" or "finish",
   "tool": "tool_name_here",
@@ -122,45 +220,39 @@ Instructions:
 }}
 """
 
+        # 1st Attempt to generate and parse decision
         try:
             raw_response = generate_text(prompt, json_mode=True)
+            return parse_and_validate_decision(raw_response)
+        except Exception as first_err:
+            error_msg = str(first_err)
+            # ONE Repair Attempt
+            repair_prompt = f"""
+Your previous JSON decision response failed validation with the following error:
+{error_msg}
 
-            # Clean markdown code block formatting if present
-            cleaned = raw_response.strip()
-            if cleaned.startswith("```"):
-                lines = cleaned.splitlines()
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].startswith("```"):
-                    lines = lines[:-1]
-                cleaned = "\n".join(lines).strip()
+Please correct your output. Return ONLY a valid JSON object matching the schema with no extra text or markdown formatting:
+{{
+  "action": "tool" or "finish",
+  "tool": "tool_name_here",
+  "args": {{}},
+  "reason": "explanation",
+  "final_answer": ""
+}}
+"""
+            try:
+                # Increment llm_call_notifier if present in state
+                notifier = state.get("llm_call_notifier")
+                if notifier and callable(notifier):
+                    notifier()
 
-            decision = json.loads(cleaned)
-
-            # Validate decision dictionary structure
-            if not isinstance(decision, dict):
-                raise ValueError("Planner response is not a valid JSON object.")
-
-            action = decision.get("action", "tool")
-            tool_name = decision.get("tool", "")
-            args = decision.get("args", {})
-            reason = decision.get("reason", "")
-            final_answer = decision.get("final_answer", "")
-
-            return {
-                "action": action,
-                "tool": str(tool_name),
-                "args": args if isinstance(args, dict) else {},
-                "reason": str(reason),
-                "final_answer": str(final_answer)
-            }
-
-        except Exception as e:
-            # Return fallback invalid decision envelope to be handled safely by the agent loop
-            return {
-                "action": "invalid",
-                "tool": "",
-                "args": {},
-                "reason": f"Failed to parse LLM planner JSON: {str(e)}",
-                "final_answer": ""
-            }
+                repair_response = generate_text(repair_prompt, json_mode=True)
+                return parse_and_validate_decision(repair_response)
+            except Exception as repair_err:
+                return {
+                    "action": "invalid",
+                    "tool": "",
+                    "args": {},
+                    "reason": f"Failed to parse LLM planner JSON after repair attempt: {str(repair_err)}",
+                    "final_answer": ""
+                }

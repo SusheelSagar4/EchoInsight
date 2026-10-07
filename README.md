@@ -276,6 +276,7 @@ These tests run deterministically without internet access or Gemini API quota us
 - `python backend/test_agent_loop.py`: Tests 7 core loop mechanics scenarios using `ScriptedPlanner`.
 - `python backend/test_agent_api.py`: Tests REST API pause/resume, approval rejection, and timeout using `TestClient` and `ScriptedPlanner`.
 - `python backend/test_goals.py`: Tests multiple goal types (`full_pipeline`, `topic_backlog`, `read_only_query`, `impossible_goal`) and `get_feedback_trend`.
+- `python backend/test_planner_loop_hardening.py`: Stand-in tests for markdown fenced JSON parsing, trailing prose extraction, 1-attempt repair success, repair failure, repeated-call loop detection (`stuck_loop`), and LLM budget exhaustion (`budget_exhausted`).
 - `python backend/eval_agent.py --scripted`: Runs full stand-in evaluation across all sample goals and saves results to `backend/data/eval_results.json`.
 
 #### 2. Live Gemini LLM Tests (Manual Executions)
@@ -306,6 +307,21 @@ These tests run deterministically without internet access or Gemini API quota us
 ---
 
 ## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - GeminiPlanner & Agent Loop Hardening
+- **What Changed**:
+  - Hardened `GeminiPlanner` in `backend/app/agent/planner.py` with markdown code fence stripping (` ```json ... ``` `), regex extraction of JSON objects from surrounding prose, pre-execution tool registry validation, and 1-attempt repair prompt fallback on JSON errors.
+  - Improved prompt hygiene with step progress headers (`Step X of Y`) and history summarization (full detail for last 3 observations, single short line for older history).
+  - Enhanced `run_agent()` in `backend/app/agent/loop.py` with 3-call identical tool loop detection (`status: "stuck_loop"`), total LLM call budget limits (`llm_budget=12`, `status: "budget_exhausted"`), and `llm_calls` & `retries` metrics tracking.
+  - Added `backend/test_planner_loop_hardening.py` containing 6 stand-in tests verifying fenced JSON, trailing prose extraction, repair success/failure, stuck loop detection, and budget cap.
+  - Updated `backend/eval_agent.py` to label evaluation mode (`scripted` vs `live`) in terminal table headers and `eval_results.json`, and track `llm_calls` per goal.
+- **Files Touched**:
+  - `backend/app/agent/planner.py`
+  - `backend/app/agent/loop.py`
+  - `backend/test_planner_loop_hardening.py`
+  - `backend/eval_agent.py`
+  - `README.md`
+- **Why**: Protects the agent loop against LLM JSON formatting quirks, stuck infinite loops, and token budget overruns while providing complete stand-in test coverage and clear execution metrics.
 
 ### [2026-10-07] - System Preflight Diagnostic Harness
 - **What Changed**:
