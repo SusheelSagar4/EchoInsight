@@ -52,63 +52,121 @@ _first_failure_occurred: bool = False
 # ==============================================================================
 # Error Classification & Failure Envelope Helper
 # ==============================================================================
-def classify_error(message: str) -> Dict[str, Any]:
+def parse_duration_seconds(message: str) -> Optional[float]:
     """
-    Analyzes an error message to determine if it is temporary/retryable
-    and extracts or estimates the recommended retry delay (in seconds).
-
-    Beginner explanation:
-    Not all errors are equal! A 'File Not Found' error is permanent, but a '429 Rate Limit'
-    or 'Timeout' is temporary. This helper checks if an error message contains rate limit,
-    quota, or timeout keywords, and calculates how many seconds the caller should wait
-    before retrying.
-
-    Args:
-        message (str): The raw error message string.
-
-    Returns:
-        dict: {"retryable": bool, "retry_after_seconds": int | None}
+    Parses duration strings like '7h45m38.1s', '44.45s', 'seconds: 27938', etc.
+    into total seconds as a float. Returns None if no valid duration pattern is found.
     """
-    if not message or not isinstance(message, str):
-        return {"retryable": False, "retry_after_seconds": None}
+    if not message:
+        return None
 
     msg_lower = message.lower()
 
-    # Keywords indicating a temporary, quota, or rate-limited error
-    retryable_keywords = ["429", "quota", "rate limit", "timed out", "timeout", "503"]
-    is_retryable = any(kw in msg_lower for kw in retryable_keywords)
+    # 1. Match "retry in 7h45m38.1s" or "7h45m38.1s" or "7h45m"
+    retry_hms = re.search(r"(?:retry\s+in\s+)?(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:([\d\.]+)\s*s)?", msg_lower)
+    hms_explicit = re.search(r"\b(?:(\d+)\s*h)\s*(?:(\d+)\s*m)?\s*(?:([\d\.]+)\s*s)?\b", msg_lower)
+    if hms_explicit:
+        h = float(hms_explicit.group(1)) if hms_explicit.group(1) else 0.0
+        m = float(hms_explicit.group(2)) if hms_explicit.group(2) else 0.0
+        s = float(hms_explicit.group(3)) if hms_explicit.group(3) else 0.0
+        total = h * 3600 + m * 60 + s
+        if total > 0:
+            return total
 
-    if not is_retryable:
-        return {"retryable": False, "retry_after_seconds": None}
+    # Match "retry in 7h45m38.1s" explicitly
+    retry_hms_match = re.search(r"retry\s+in\s+(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:([\d\.]+)\s*s)?", msg_lower)
+    if retry_hms_match and (retry_hms_match.group(1) or retry_hms_match.group(2) or retry_hms_match.group(3)):
+        h = float(retry_hms_match.group(1)) if retry_hms_match.group(1) else 0.0
+        m = float(retry_hms_match.group(2)) if retry_hms_match.group(2) else 0.0
+        s = float(retry_hms_match.group(3)) if retry_hms_match.group(3) else 0.0
+        total = h * 3600 + m * 60 + s
+        if total > 0:
+            return total
 
-    delay_seconds: Optional[float] = None
-
-    # Pattern 1: "retry in 44.45s", "retry in 44.45 s", "retry in 44 seconds"
-    match_retry_in = re.search(r"retry\s+in\s+([\d\.]+)\s*s?", msg_lower)
-    if match_retry_in:
+    # 2. Match "seconds:\s*([\d\.]+)" e.g. "retry_delay { seconds: 27938 }"
+    seconds_match = re.search(r"seconds:\s*([\d\.]+)", msg_lower)
+    if seconds_match:
         try:
-            delay_seconds = float(match_retry_in.group(1))
+            return float(seconds_match.group(1))
         except ValueError:
             pass
 
-    # Pattern 2: "seconds: 44", "seconds: 28505"
-    if delay_seconds is None:
-        match_seconds = re.search(r"seconds:\s*([\d\.]+)", msg_lower)
-        if match_seconds:
-            try:
-                delay_seconds = float(match_seconds.group(1))
-            except ValueError:
-                pass
+    # 3. Match "retry in ([\d\.]+)\s*s?" e.g. "retry in 44.45s"
+    retry_sec = re.search(r"retry\s+in\s+([\d\.]+)\s*s?", msg_lower)
+    if retry_sec:
+        try:
+            return float(retry_sec.group(1))
+        except ValueError:
+            pass
 
-    if delay_seconds is not None and delay_seconds > 0:
-        retry_after = math.ceil(delay_seconds)
-    else:
-        # Default retry delay if retryable but no specific delay parsed from message
-        retry_after = 30
+    # 4. Match standalone "([\d\.]+)\s*seconds" or "([\d\.]+)\s*s"
+    sec_word = re.search(r"([\d\.]+)\s*(?:seconds|sec|s)\b", msg_lower)
+    if sec_word:
+        try:
+            return float(sec_word.group(1))
+        except ValueError:
+            pass
+
+    return None
+
+
+def classify_error(message: str) -> Dict[str, Any]:
+    """
+    Analyzes an error message to determine if it is temporary/retryable,
+    categorizes its error_type, and parses or estimates retry_after_seconds.
+
+    Rules:
+    - error_type is one of: "rate_limited", "timeout", "quota_exhausted", "other"
+    - If message contains "perday" or parsed delay > 120s:
+      returns {"retryable": False, "error_type": "quota_exhausted", "retry_after_seconds": <parsed>}
+    - If timeout: returns {"retryable": True, "error_type": "timeout", "retry_after_seconds": <parsed or 30>}
+    - If rate limited: returns {"retryable": True, "error_type": "rate_limited", "retry_after_seconds": <parsed or 30>}
+    - Otherwise: returns {"retryable": False, "error_type": "other", "retry_after_seconds": None}
+    """
+    if not message or not isinstance(message, str):
+        return {
+            "retryable": False,
+            "error_type": "other",
+            "retry_after_seconds": None
+        }
+
+    msg_lower = message.lower()
+
+    # Parse duration in seconds if present
+    parsed_sec = parse_duration_seconds(message)
+    retry_after = math.ceil(parsed_sec) if parsed_sec is not None and parsed_sec > 0 else None
+
+    # Check for PerDay quota exhaustion or long delay (> 120 seconds)
+    is_per_day = "perday" in msg_lower
+    if is_per_day or (retry_after is not None and retry_after > 120):
+        return {
+            "retryable": False,
+            "error_type": "quota_exhausted",
+            "retry_after_seconds": retry_after
+        }
+
+    # Check for timeout or rate limit keywords
+    is_timeout = "timed out" in msg_lower or "timeout" in msg_lower
+    is_rate_limit = any(kw in msg_lower for kw in ["429", "quota", "rate limit", "503"])
+
+    if is_timeout:
+        return {
+            "retryable": True,
+            "error_type": "timeout",
+            "retry_after_seconds": retry_after if retry_after is not None else 30
+        }
+
+    if is_rate_limit:
+        return {
+            "retryable": True,
+            "error_type": "rate_limited",
+            "retry_after_seconds": retry_after if retry_after is not None else 30
+        }
 
     return {
-        "retryable": True,
-        "retry_after_seconds": retry_after
+        "retryable": False,
+        "error_type": "other",
+        "retry_after_seconds": None
     }
 
 
@@ -121,6 +179,7 @@ def make_failure_envelope(error_message: str) -> Dict[str, Any]:
             "ok": False,
             "error": error_message,
             "retryable": bool,
+            "error_type": str,
             "retry_after_seconds": int | None
         }
     """
@@ -129,8 +188,10 @@ def make_failure_envelope(error_message: str) -> Dict[str, Any]:
         "ok": False,
         "error": str(error_message),
         "retryable": info["retryable"],
+        "error_type": info["error_type"],
         "retry_after_seconds": info["retry_after_seconds"]
     }
+
 
 
 # ==============================================================================

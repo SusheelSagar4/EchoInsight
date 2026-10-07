@@ -67,21 +67,12 @@ def generate_prd(cluster: FeedbackCluster) -> PRD:
     }}
     """
 
-    # ==========================================================================
-    # Step 5: Call Gemini API & Parse Output
-    # ==========================================================================
     try:
-        # Initialize Gemini 3.6 Flash model
-        model = genai.GenerativeModel("gemini-3.6-flash")
+        # Call Gemini model via unified LLM client helper
+        from .llm_client import generate_text
+        raw_text = generate_text(prompt, json_mode=True)
 
-        # Request JSON output from Gemini
-        response = model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
 
-        # Extract response text
-        raw_text = response.text.strip()
 
         # Strip markdown code fences if present
         if raw_text.startswith("```"):

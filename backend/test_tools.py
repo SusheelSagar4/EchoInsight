@@ -1,15 +1,12 @@
 """
 backend/test_tools.py
 
-Isolated test script for EchoInsight agent tools.
+Isolated test suite for EchoInsight agent tools.
 
 ==============================================================================
 WHAT IS THIS SCRIPT FOR? (FOR BEGINNERS)
 ==============================================================================
-Before building a complex AI Agent loop, it is best practice to test all underlying
-tools individually in isolation.
-
-This script executes each tool in a natural workflow sequence:
+This test suite executes each tool in a natural workflow sequence:
 1. Load sample feedback items from CSV (get_customer_feedback)
 2. Search vector memory for relevant past issues (search_memory)
 3. Cluster feedback into RICE prioritized groups (cluster_feedback_tool)
@@ -18,6 +15,10 @@ This script executes each tool in a natural workflow sequence:
 6. Save a ticket to the engineering backlog (create_backlog_item)
 7. Verify the ticket was stored in backlog.json (verify_backlog_item)
 8. Demonstrate failure simulation & recovery mode (SIMULATE_FAILURES)
+
+If any step fails, it is marked FAIL (or SKIPPED if dependent) without hiding
+failures with mock fallback data. It concludes with a summary table and an
+overall result of PASS only if every tool passes.
 ==============================================================================
 """
 
@@ -73,185 +74,195 @@ def execute_with_test_retry(tool_fn, *args, **kwargs) -> dict:
 def main():
     print("=== Starting EchoInsight Agent Tools Verification Test Suite ===")
 
+    # Track results per tool: "PASS", "FAIL", or "SKIPPED"
+    tool_results = {}
+    tool_details = {}
+
     # --------------------------------------------------------------------------
     # Step 1: Read Sample Customer Feedback
     # --------------------------------------------------------------------------
     print_step_header(1, "Testing get_customer_feedback()")
     res1 = execute_with_test_retry(get_customer_feedback)
-    print(f"  [Status] OK: {res1['ok']}")
     if res1["ok"]:
         feedback_lines = res1["data"]
-        print(f"  [Summary] Loaded {len(feedback_lines)} feedback items from sample_feedback.csv")
-        print(f"  [Sample Line 1] \"{feedback_lines[0]}\"")
+        tool_results["get_customer_feedback"] = "PASS"
+        tool_details["get_customer_feedback"] = f"Loaded {len(feedback_lines)} items"
+        print(f"  [Status] PASS | {tool_details['get_customer_feedback']}")
     else:
-        print(f"  [Error] {res1['error']} | Retryable: {res1.get('retryable')} | Retry After: {res1.get('retry_after_seconds')}")
-        return
+        feedback_lines = []
+        tool_results["get_customer_feedback"] = "FAIL"
+        tool_details["get_customer_feedback"] = f"Error: {res1.get('error')[:40]}..."
+        print(f"  [Status] FAIL | {res1.get('error')}")
 
     # --------------------------------------------------------------------------
     # Step 2: Search Vector Memory
     # --------------------------------------------------------------------------
     print_step_header(2, "Testing search_memory()")
     res2 = execute_with_test_retry(search_memory, query="checkout credit card failure", top_k=3)
-    print(f"  [Status] OK: {res2['ok']}")
     if res2["ok"]:
         matches = res2["data"]
-        print(f"  [Summary] Found {len(matches)} vector memory matches for query 'checkout credit card failure'")
-        for idx, match in enumerate(matches, start=1):
-            print(f"    Match #{idx}: {match.get('document', '')[:60]}... (Distance: {match.get('distance', 0):.3f})")
+        tool_results["search_memory"] = "PASS"
+        tool_details["search_memory"] = f"Found {len(matches)} vector matches"
+        print(f"  [Status] PASS | {tool_details['search_memory']}")
     else:
-        print(f"  [Error] {res2['error']} | Retryable: {res2.get('retryable')}")
+        tool_results["search_memory"] = "FAIL"
+        tool_details["search_memory"] = f"Error: {res2.get('error')[:40]}..."
+        print(f"  [Status] FAIL | {res2.get('error')}")
 
     # --------------------------------------------------------------------------
     # Step 3: Cluster Feedback using Gemini AI
     # --------------------------------------------------------------------------
     print_step_header(3, "Testing cluster_feedback_tool()")
-    # Use first 5 lines for fast isolated test execution
-    test_lines = feedback_lines[:5]
-    print(f"  [Action] Sending {len(test_lines)} feedback lines to Gemini AI for clustering...")
-    res3 = execute_with_test_retry(cluster_feedback_tool, test_lines)
-    print(f"  [Status] OK: {res3['ok']}")
-    if res3["ok"]:
-        clusters = res3["data"]
-        print(f"  [Summary] Gemini created {len(clusters)} thematic clusters.")
-        for c in clusters:
-            print(f"    - Theme: '{c.get('theme_name')}' | RICE Score: {c.get('rice_score', 0):.2f} | Items: {len(c.get('feedback_items', []))}")
+    clusters = None
+    if tool_results.get("get_customer_feedback") == "PASS" and feedback_lines:
+        test_lines = feedback_lines[:5]
+        print(f"  [Action] Sending {len(test_lines)} feedback lines to Gemini AI for clustering...")
+        res3 = execute_with_test_retry(cluster_feedback_tool, test_lines)
+        if res3["ok"]:
+            clusters = res3["data"]
+            tool_results["cluster_feedback_tool"] = "PASS"
+            tool_details["cluster_feedback_tool"] = f"Created {len(clusters)} clusters"
+            print(f"  [Status] PASS | {tool_details['cluster_feedback_tool']}")
+        else:
+            tool_results["cluster_feedback_tool"] = "FAIL"
+            tool_details["cluster_feedback_tool"] = f"Error ({res3.get('error_type')}): {res3.get('error')[:40]}..."
+            print(f"  [Status] FAIL | Error Type: {res3.get('error_type')} | Message: {res3.get('error')}")
     else:
-        print(f"  [Error Envelope] {res3['error']}")
-        print(f"  [Retry Metadata] Retryable: {res3.get('retryable')} | Retry After: {res3.get('retry_after_seconds')}s")
-        print("  [Notice] Gemini API limit hit or unavailable. Using sample cluster data to test remaining tools...")
-        clusters = [
-            {
-                "theme_name": "Checkout Payment Failures",
-                "feedback_items": [
-                    {
-                        "text": "Tried paying with my Visa card three times and it keeps giving me Error 502 at checkout!!",
-                        "sentiment": "Negative",
-                        "intent": "Bug",
-                        "urgency": "High",
-                        "similar_past_count": 2
-                    },
-                    {
-                        "text": "Why does the payment button get stuck on 'Processing...' forever when I use Apple Pay?",
-                        "sentiment": "Negative",
-                        "intent": "Bug",
-                        "urgency": "High",
-                        "similar_past_count": 1
-                    }
-                ],
-                "frequency": 2,
-                "reach": 40.0,
-                "impact": 3.0,
-                "confidence": 0.9,
-                "effort": 2.0,
-                "rice_score": 54.0,
-                "affected_count": 5,
-                "negative_feedback_count": 2
-            }
-        ]
-
-
+        tool_results["cluster_feedback_tool"] = "SKIPPED"
+        tool_details["cluster_feedback_tool"] = "Depended on get_customer_feedback"
+        print("  [Status] SKIPPED | Depends on get_customer_feedback")
 
     # --------------------------------------------------------------------------
     # Step 4: Rank Clusters by RICE Score
     # --------------------------------------------------------------------------
     print_step_header(4, "Testing rank_clusters()")
-    res4 = execute_with_test_retry(rank_clusters, clusters)
-    print(f"  [Status] OK: {res4['ok']}")
-    if res4["ok"]:
-        ranked_clusters = res4["data"]
-        top_cluster = ranked_clusters[0]
-        print(f"  [Summary] Ranked {len(ranked_clusters)} clusters highest-to-lowest RICE score.")
-        print(f"  [#1 Ranked Theme] '{top_cluster.get('theme_name')}' with RICE score {top_cluster.get('rice_score', 0):.2f}")
+    top_cluster = None
+    if clusters is not None:
+        res4 = execute_with_test_retry(rank_clusters, clusters)
+        if res4["ok"]:
+            ranked_clusters = res4["data"]
+            top_cluster = ranked_clusters[0] if ranked_clusters else None
+            tool_results["rank_clusters"] = "PASS"
+            score = top_cluster.get('rice_score', 0) if top_cluster else 0
+            tool_details["rank_clusters"] = f"Ranked {len(ranked_clusters)} clusters (Top score: {score:.1f})"
+            print(f"  [Status] PASS | {tool_details['rank_clusters']}")
+        else:
+            tool_results["rank_clusters"] = "FAIL"
+            tool_details["rank_clusters"] = f"Error: {res4.get('error')[:40]}..."
+            print(f"  [Status] FAIL | {res4.get('error')}")
     else:
-        print(f"  [Error] {res4['error']} | Retryable: {res4.get('retryable')}")
-        return
+        tool_results["rank_clusters"] = "SKIPPED"
+        tool_details["rank_clusters"] = "Depended on cluster_feedback_tool"
+        print("  [Status] SKIPPED | Depends on cluster_feedback_tool")
 
     # --------------------------------------------------------------------------
     # Step 5: Generate PRD for Top Ranked Cluster
     # --------------------------------------------------------------------------
     print_step_header(5, "Testing generate_prd_tool()")
-    print(f"  [Action] Generating PRD for cluster '{top_cluster.get('theme_name')}'...")
-    res5 = execute_with_test_retry(generate_prd_tool, top_cluster)
-    print(f"  [Status] OK: {res5['ok']}")
-    if res5["ok"]:
-        prd_data = res5["data"]
-        print(f"  [Summary] PRD generated successfully!")
-        print(f"    - Title: {prd_data.get('title')}")
-        print(f"    - Problem Statement: {prd_data.get('problem_statement', '')[:100]}...")
-        print(f"    - User Stories Count: {len(prd_data.get('user_stories', []))}")
-        print(f"    - Acceptance Criteria Count: {len(prd_data.get('acceptance_criteria', []))}")
-        print(f"    - KPIs Count: {len(prd_data.get('kpis', []))}")
+    prd_data = None
+    if top_cluster is not None:
+        print(f"  [Action] Generating PRD for cluster '{top_cluster.get('theme_name')}'...")
+        res5 = execute_with_test_retry(generate_prd_tool, top_cluster)
+        if res5["ok"]:
+            prd_data = res5["data"]
+            tool_results["generate_prd_tool"] = "PASS"
+            tool_details["generate_prd_tool"] = f"Title: '{prd_data.get('title')}'"
+            print(f"  [Status] PASS | {tool_details['generate_prd_tool']}")
+        else:
+            tool_results["generate_prd_tool"] = "FAIL"
+            tool_details["generate_prd_tool"] = f"Error ({res5.get('error_type')}): {res5.get('error')[:40]}..."
+            print(f"  [Status] FAIL | Error Type: {res5.get('error_type')} | Message: {res5.get('error')}")
     else:
-        print(f"  [Error Envelope] {res5['error']}")
-        print(f"  [Retry Metadata] Retryable: {res5.get('retryable')} | Retry After: {res5.get('retry_after_seconds')}s")
-        print("  [Notice] Gemini API limit hit or unavailable. Using sample PRD data for ticket creation test...")
-        prd_data = {
-            "title": f"Resolve {top_cluster.get('theme_name')}",
-            "problem_statement": "Multiple users reported recurring checkout payment failures and app crashes.",
-            "user_stories": ["As a customer, I want seamless payment processing..."],
-            "acceptance_criteria": ["System must retry failed gateway calls once..."],
-            "kpis": ["Reduce checkout error rate by 80%"]
-        }
+        tool_results["generate_prd_tool"] = "SKIPPED"
+        tool_details["generate_prd_tool"] = "Depended on rank_clusters"
+        print("  [Status] SKIPPED | Depends on rank_clusters")
 
     # --------------------------------------------------------------------------
     # Step 6: Create Engineering Backlog Item
     # --------------------------------------------------------------------------
     print_step_header(6, "Testing create_backlog_item()")
-    ticket_title = prd_data.get("title", f"Fix {top_cluster.get('theme_name')}")
-    ticket_desc = prd_data.get("problem_statement", "User feedback fix required.")
+    ticket_title = prd_data.get("title") if prd_data else "Fix Checkout Payment Failures"
+    ticket_desc = prd_data.get("problem_statement") if prd_data else "User payment failures reported during checkout step."
     res6 = execute_with_test_retry(
         create_backlog_item,
         title=ticket_title,
         description=ticket_desc,
         priority="High"
     )
-    print(f"  [Status] OK: {res6['ok']}")
     if res6["ok"]:
         item_data = res6["data"]
         created_id = item_data.get("id")
-        print(f"  [Summary] Ticket created successfully!")
-        print(f"    - ID: {created_id}")
-        print(f"    - Title: {item_data.get('title')}")
-        print(f"    - Status: {item_data.get('status')}")
-        print(f"    - Created At: {item_data.get('created_at')}")
+        tool_results["create_backlog_item"] = "PASS"
+        tool_details["create_backlog_item"] = f"Created ticket {created_id}"
+        print(f"  [Status] PASS | {tool_details['create_backlog_item']}")
     else:
-        print(f"  [Error] {res6['error']} | Retryable: {res6.get('retryable')}")
-        return
+        created_id = None
+        tool_results["create_backlog_item"] = "FAIL"
+        tool_details["create_backlog_item"] = f"Error: {res6.get('error')[:40]}..."
+        print(f"  [Status] FAIL | {res6.get('error')}")
 
     # --------------------------------------------------------------------------
     # Step 7: Verify Backlog Item Existence
     # --------------------------------------------------------------------------
     print_step_header(7, "Testing verify_backlog_item()")
-    res7 = execute_with_test_retry(verify_backlog_item, item_id=created_id)
-    print(f"  [Status] OK: {res7['ok']}")
-    if res7["ok"]:
-        verified_data = res7["data"]
-        print(f"  [Summary] Ticket '{created_id}' verified in backlog.json persistence!")
-        print(f"    - Confirmed Title: {verified_data.get('title')}")
-        print(f"    - Confirmed Priority: {verified_data.get('priority')}")
+    if created_id is not None:
+        res7 = execute_with_test_retry(verify_backlog_item, item_id=created_id)
+        if res7["ok"]:
+            tool_results["verify_backlog_item"] = "PASS"
+            tool_details["verify_backlog_item"] = f"Verified ticket {created_id} in backlog.json"
+            print(f"  [Status] PASS | {tool_details['verify_backlog_item']}")
+        else:
+            tool_results["verify_backlog_item"] = "FAIL"
+            tool_details["verify_backlog_item"] = f"Error: {res7.get('error')[:40]}..."
+            print(f"  [Status] FAIL | {res7.get('error')}")
     else:
-        print(f"  [Error] {res7['error']} | Retryable: {res7.get('retryable')}")
+        tool_results["verify_backlog_item"] = "SKIPPED"
+        tool_details["verify_backlog_item"] = "Depended on create_backlog_item"
+        print("  [Status] SKIPPED | Depends on create_backlog_item")
 
     # --------------------------------------------------------------------------
-    # Step 8: Test Simulation of Failure Recovery
+    # Step 8: Test Failure Recovery Mode (SIMULATE_FAILURES = True)
     # --------------------------------------------------------------------------
     print_step_header(8, "Testing Failure Recovery Mode (SIMULATE_FAILURES = True)")
     tools_module.SIMULATE_FAILURES = True
     tools_module._first_failure_occurred = False
 
-    print("  [Call 1 with SIMULATE_FAILURES=True] Calling create_backlog_item()...")
     fail_res = create_backlog_item(title="Test Ticket", description="Test", priority="Low")
-    print(f"  [Call 1 Status] OK: {fail_res['ok']} | Error: \"{fail_res.get('error')}\" | Retryable: {fail_res.get('retryable')} | Retry After: {fail_res.get('retry_after_seconds')}s")
-
-    print("  [Call 2 (Retry) with SIMULATE_FAILURES=True] Calling create_backlog_item()...")
     retry_res = create_backlog_item(title="Test Ticket Retry", description="Test Retry", priority="Low")
-    print(f"  [Call 2 Status] OK: {retry_res['ok']} | Ticket Created ID: {retry_res.get('data', {}).get('id')}")
 
     tools_module.SIMULATE_FAILURES = False
 
+    if not fail_res.get("ok") and fail_res.get("retryable") and retry_res.get("ok"):
+        tool_results["simulate_failures_demo"] = "PASS"
+        tool_details["simulate_failures_demo"] = "Caught timeout & retried successfully"
+        print("  [Status] PASS | Caught expected timeout & retried successfully")
+    else:
+        tool_results["simulate_failures_demo"] = "FAIL"
+        tool_details["simulate_failures_demo"] = "Failure recovery simulation failed"
+        print("  [Status] FAIL | Failure recovery simulation did not behave as expected")
 
+    # --------------------------------------------------------------------------
+    # Final Summary Table Output
+    # --------------------------------------------------------------------------
     print("\n" + "=" * 70)
-    print(" [SUCCESS] ALL TOOL TESTS COMPLETED SUCCESSFULLY!")
+    print("                 AGENT TOOLS VERIFICATION SUMMARY")
+    print("=" * 70)
+    print(f" {'Tool Name':<28} | {'Status':<8} | Details")
+    print("-" * 70)
+    for tool_name, status in tool_results.items():
+        details = tool_details.get(tool_name, "")
+        print(f" {tool_name:<28} | {status:<8} | {details}")
+    print("-" * 70)
+
+    all_passed = all(status == "PASS" for status in tool_results.values())
+    passed_count = sum(1 for status in tool_results.values() if status == "PASS")
+    failed_count = sum(1 for status in tool_results.values() if status == "FAIL")
+    skipped_count = sum(1 for status in tool_results.values() if status == "SKIPPED")
+
+    if all_passed:
+        print(f" OVERALL RESULT: PASS (All {len(tool_results)} tests passed)")
+    else:
+        print(f" OVERALL RESULT: FAIL ({passed_count} passed, {failed_count} failed, {skipped_count} skipped)")
     print("=" * 70 + "\n")
 
 

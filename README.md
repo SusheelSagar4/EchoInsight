@@ -179,13 +179,21 @@ Open `http://localhost:5173` in your browser.
 EchoInsight includes an autonomous AI Agent tool layer built in Python for executing product intelligence workflows.
 
 ### Design Principles:
-1. **Retryable Failure Envelope**: Every tool returns a uniform envelope:
-   - **Success**: `{"ok": True, "data": ...}`
-   - **Failure**: `{"ok": False, "error": "<message>", "retryable": <bool>, "retry_after_seconds": <int or None>}`
-   - *Why it exists*: When an LLM agent encounters a failure (such as an API rate limit, quota exhaustion HTTP 429, gateway 503, or network timeout), it needs structured metadata to distinguish between transient errors (which can be retried after a delay) and permanent failures (which require changing inputs or informing the user).
-2. **Self-Contained Exception Catching**: Tools catch internal errors so the calling agent loop remains fully operational.
-3. **Declarative Tool Registry**: Central `TOOL_REGISTRY` mapping tool names to functions, clear descriptions, argument metadata, and approval flags (`requires_approval=True` ONLY for write operations like `create_backlog_item`).
-4. **Resilient Local Persistence**: Engineering backlog items are assigned incremental IDs (`ENG-101`) and saved to `backend/data/backlog.json`.
+1. **Error Classification & Retry Metadata**: Failure envelopes return:
+   `{"ok": False, "error": "<msg>", "retryable": <bool>, "error_type": "<type>", "retry_after_seconds": <int|None>}`
+   - `error_type` is categorized as `"rate_limited"`, `"timeout"`, `"quota_exhausted"`, or `"other"`.
+   - `parse_duration_seconds` converts complex duration strings (e.g., `7h45m38.1s`, `44.45s`, `seconds: 27938`) to total seconds.
+   - Long delays (> 120 seconds) or `PerDay` limits are accurately categorized as `quota_exhausted` with `retryable: False`.
+2. **Unified LLM Client with Dev Caching (`backend/app/services/llm_client.py`)**:
+   - Centralizes Gemini model calls via `generate_text(prompt, json_mode)`.
+   - Reads model name from `GEMINI_MODEL` env var (default `"gemini-3.6-flash"`).
+   - Supports local dev response caching when `LLM_CACHE=1`, saving prompt hashes and responses to `backend/data/llm_cache/`.
+3. **Honest Test Suite Execution (`backend/test_tools.py`)**:
+   - Executes each tool in sequence without hiding real API failures using mock fallbacks.
+   - Retries transient errors (`retryable=True`) once after sleeping `N+2` seconds.
+   - Outputs a summary table listing each tool's status (`PASS`, `FAIL`, or `SKIPPED`) and an overall result of `PASS` only if all tools pass.
+4. **Declarative Tool Registry**: Central `TOOL_REGISTRY` mapping tool names to functions, clear descriptions, argument metadata, and approval flags (`requires_approval=True` ONLY for write operations like `create_backlog_item`).
+5. **Resilient Local Persistence**: Engineering backlog items are assigned incremental IDs (`ENG-101`) and saved to `backend/data/backlog.json`.
 
 ### Available Tools:
 - `get_customer_feedback()`: Reads customer feedback lines from CSV.
@@ -199,6 +207,25 @@ EchoInsight includes an autonomous AI Agent tool layer built in Python for execu
 ---
 
 ## 📝 Agent Upgrade Changelog
+
+### [2026-10-07] - LLM Client Caching, Duration Error Parsing & Honest Test Suite
+- **What Changed**:
+  - Implemented `backend/app/services/llm_client.py` with dynamic model selection via `GEMINI_MODEL` and optional dev caching via `LLM_CACHE=1` stored in `backend/data/llm_cache/`.
+  - Refactored `clustering_service.py` and `prd_service.py` to use `llm_client.generate_text()`.
+  - Enhanced `classify_error()` in `tools.py` with `parse_duration_seconds()` to accurately parse `7h45m38.1s`, `44.45s`, and `seconds: X` patterns, and tag `error_type` (`"rate_limited"`, `"timeout"`, `"quota_exhausted"`, `"other"`).
+  - Updated `test_tools.py` to remove mock fallbacks, track `PASS`/`FAIL`/`SKIPPED` per tool, and output an overall summary table.
+  - Added `backend/.env.example` with commented `GEMINI_MODEL` and `LLM_CACHE` configuration examples.
+  - Updated `.gitignore` to ignore `backend/data/llm_cache/`.
+- **Files Touched**:
+  - `backend/app/agent/tools.py`
+  - `backend/test_tools.py`
+  - `backend/app/services/llm_client.py`
+  - `backend/app/services/clustering_service.py`
+  - `backend/app/services/prd_service.py`
+  - `backend/.env.example`
+  - `.gitignore`
+  - `README.md`
+- **Why**: Prevents misclassifying hours as seconds in rate limits, distinguishes daily quota exhaustion from temporary per-minute limits, provides local LLM dev caching to protect API quota, and enforces honest test reporting without false positives.
 
 ### [2026-10-07] - Retryable Failure Metadata & Rate Limit Handler
 - **What Changed**: Enhanced tool failure envelopes to include `retryable` (boolean) and `retry_after_seconds` (integer or None) fields parsed via `classify_error()`. Updated `test_tools.py` with an isolated retry helper `execute_with_test_retry` that waits `N+2` seconds when encountering transient errors.
@@ -218,6 +245,7 @@ EchoInsight includes an autonomous AI Agent tool layer built in Python for execu
   - `.gitignore`
   - `README.md`
 - **Why**: Enables an autonomous agent to safely invoke modular tools with uniform error handling, approval safety checks, local JSON backlog persistence, and failure recovery testing capability.
+
 
 
 ---
